@@ -211,6 +211,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const chatProvider = new ChatPanelProvider(context.extensionUri, agentLoop, modeEngine);
 
+  // Set initial model name in chat panel after webview resolves
+  setTimeout(() => chatProvider.setModel(llmAdapter.getChatModel()), 500);
+
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('OpenCob.chatPanel', chatProvider),
 
@@ -238,7 +241,7 @@ export function activate(context: vscode.ExtensionContext): void {
       chatProvider.newConversation();
     }),
 
-    // Model picker (F9)
+    // Model picker — Chat model (F9)
     vscode.commands.registerCommand('OpenCob.selectModel', async () => {
       const available = await llmAdapter.isAvailable();
       if (!available) {
@@ -248,14 +251,45 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const models = await llmAdapter.listModels();
-      const items = models.map((m) => ({ label: m, description: `${provider} model` }));
+      const currentChat = llmAdapter.getChatModel();
+      const items = models.map((m) => ({
+        label: m,
+        description: m === currentChat ? '(current chat model)' : '',
+      }));
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: 'Select a model for chat',
+        placeHolder: `Select chat model (${provider}) — current: ${currentChat}`,
+        matchOnDescription: true,
       });
       if (selected) {
         llmAdapter.setChatModel(selected.label);
         statusBarItem.text = `$(hubot) ${selected.label}`;
-        vscode.window.showInformationMessage(`OpenCob: Switched to ${selected.label}`);
+        chatProvider.setModel(selected.label);
+        vscode.window.showInformationMessage(`OpenCob: Chat model → ${selected.label}`);
+      }
+    }),
+
+    // Model picker — Completion model
+    vscode.commands.registerCommand('OpenCob.selectCompletionModel', async () => {
+      const available = await llmAdapter.isAvailable();
+      if (!available) {
+        vscode.window.showErrorMessage(
+          `OpenCob: ${provider === 'ollama' ? 'Ollama is not running. Start it with: ollama serve' : 'LLM provider is not reachable. Check your settings.'}`,
+        );
+        return;
+      }
+      const models = await llmAdapter.listModels();
+      const currentCompletion = llmAdapter.getCompletionModel();
+      const items = models.map((m) => ({
+        label: m,
+        description: m === currentCompletion ? '(current completion model)' : '',
+      }));
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: `Select completion model (${provider}) — current: ${currentCompletion}`,
+        matchOnDescription: true,
+      });
+      if (selected) {
+        llmAdapter.setCompletionModel(selected.label);
+        vscode.window.showInformationMessage(`OpenCob: Completion model → ${selected.label}`);
       }
     }),
 

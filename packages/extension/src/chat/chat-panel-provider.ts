@@ -49,6 +49,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
         case 'enhancePrompt':
           await this.handleEnhancePrompt(message.text);
           break;
+        case 'selectModel':
+          vscode.commands.executeCommand('OpenCob.selectModel');
+          break;
       }
     });
   }
@@ -56,6 +59,10 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   setMode(mode: string): void {
     this.currentMode = mode;
     this.view?.webview.postMessage({ type: 'modeChanged', mode });
+  }
+
+  setModel(model: string): void {
+    this.view?.webview.postMessage({ type: 'modelChanged', model });
   }
 
   newConversation(): void {
@@ -230,6 +237,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     button#send:disabled { opacity: 0.5; cursor: not-allowed; }
     #header { display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); gap: 8px; }
     #mode { font-size: 12px; color: var(--vscode-descriptionForeground); }
+    #model-btn { background: none; border: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); cursor: pointer; padding: 2px 8px; font-size: 11px; border-radius: 3px; display: flex; align-items: center; gap: 4px; }
+    #model-btn:hover { background: var(--vscode-toolbar-hoverBackground); border-color: var(--vscode-focusBorder); }
     #status { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: auto; }
 
     /* Auto-approve toolbar (F1.1 Should) */
@@ -251,6 +260,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   <div id="chat">
     <div id="header">
       <span id="mode"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Code</span>
+      <button id="model-btn" title="Switch model"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.8 15-3.5 2"/><path d="m20.7 7-3.5 2"/><path d="M6.8 9 3.3 7"/><path d="m20.7 17-3.5-2"/><path d="m9 22 3-8 3 8"/><path d="M8 6a6 6 0 0 1 12 0c0 7-6 4-6 12"/></svg> <span id="model-name">loading...</span></button>
       <span id="status"></span>
     </div>
     <div id="auto-approve-bar">
@@ -275,8 +285,15 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     const modeEl = document.getElementById('mode');
     const statusEl = document.getElementById('status');
     const enhanceBtn = document.getElementById('enhance-btn');
+    const modelBtn = document.getElementById('model-btn');
+    const modelNameEl = document.getElementById('model-name');
     let currentAssistantEl = null;
     let assistantText = '';
+
+    // Model switch button — triggers VS Code command
+    modelBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'selectModel' });
+    });
 
     // Auto-approve toggles (F1.1 Should)
     document.querySelectorAll('.aa-toggle input').forEach(cb => {
@@ -461,6 +478,10 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
         case 'modeChanged':
           modeEl.textContent = msg.mode;
+          break;
+
+        case 'modelChanged':
+          if (modelNameEl) modelNameEl.textContent = msg.model;
           break;
 
         case 'newConversation':
