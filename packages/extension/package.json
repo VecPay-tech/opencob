@@ -162,7 +162,6 @@
     "watch": "pnpm build --watch",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit",
     "clean": "rimraf dist",
     "package": "vsce package --no-dependencies"
   },
