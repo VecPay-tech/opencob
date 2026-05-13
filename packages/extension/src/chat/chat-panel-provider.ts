@@ -5,6 +5,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private currentMode = 'Code';
   private isProcessing = false;
+  private pendingModel = '';
+  private pendingStatus: { connected: boolean; provider: string; modelCount: number } | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -25,6 +27,14 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = this.getHtml();
+
+    // Send any pending state that arrived before webview resolved
+    if (this.pendingModel) {
+      webviewView.webview.postMessage({ type: 'modelChanged', model: this.pendingModel });
+    }
+    if (this.pendingStatus) {
+      webviewView.webview.postMessage({ type: 'connectionStatus', ...this.pendingStatus });
+    }
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
@@ -52,6 +62,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
         case 'selectModel':
           vscode.commands.executeCommand('OpenCob.selectModel');
           break;
+        case 'testConnection':
+          vscode.commands.executeCommand('OpenCob.testConnection');
+          break;
       }
     });
   }
@@ -62,7 +75,13 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   }
 
   setModel(model: string): void {
+    this.pendingModel = model;
     this.view?.webview.postMessage({ type: 'modelChanged', model });
+  }
+
+  setConnectionStatus(connected: boolean, provider: string, modelCount: number): void {
+    this.pendingStatus = { connected, provider, modelCount };
+    this.view?.webview.postMessage({ type: 'connectionStatus', connected, provider, modelCount });
   }
 
   newConversation(): void {
@@ -235,10 +254,14 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     button#send { padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: inherit; }
     button#send:hover { background: var(--vscode-button-hoverBackground); }
     button#send:disabled { opacity: 0.5; cursor: not-allowed; }
-    #header { display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); gap: 8px; }
+    #header { display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); gap: 6px; flex-wrap: wrap; }
     #mode { font-size: 12px; color: var(--vscode-descriptionForeground); }
     #model-btn { background: none; border: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); cursor: pointer; padding: 2px 8px; font-size: 11px; border-radius: 3px; display: flex; align-items: center; gap: 4px; }
     #model-btn:hover { background: var(--vscode-toolbar-hoverBackground); border-color: var(--vscode-focusBorder); }
+    #conn-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 11px; border-radius: 3px; display: flex; align-items: center; gap: 3px; color: var(--vscode-descriptionForeground); }
+    #conn-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+    #conn-btn.connected { color: var(--vscode-charts-green); }
+    #conn-btn.disconnected { color: var(--vscode-errorForeground); }
     #status { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: auto; }
 
     /* Auto-approve toolbar (F1.1 Should) */
@@ -260,7 +283,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   <div id="chat">
     <div id="header">
       <span id="mode"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Code</span>
-      <button id="model-btn" title="Switch model"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.8 15-3.5 2"/><path d="m20.7 7-3.5 2"/><path d="M6.8 9 3.3 7"/><path d="m20.7 17-3.5-2"/><path d="m9 22 3-8 3 8"/><path d="M8 6a6 6 0 0 1 12 0c0 7-6 4-6 12"/></svg> <span id="model-name">loading...</span></button>
+      <button id="model-btn" title="Click to switch model"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.8 15-3.5 2"/><path d="m20.7 7-3.5 2"/><path d="M6.8 9 3.3 7"/><path d="m20.7 17-3.5-2"/><path d="m9 22 3-8 3 8"/><path d="M8 6a6 6 0 0 1 12 0c0 7-6 4-6 12"/></svg> <span id="model-name">not connected</span></button>
+      <button id="conn-btn" class="disconnected" title="Test provider connection"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> <span id="conn-text">check</span></button>
       <span id="status"></span>
     </div>
     <div id="auto-approve-bar">
@@ -287,12 +311,20 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     const enhanceBtn = document.getElementById('enhance-btn');
     const modelBtn = document.getElementById('model-btn');
     const modelNameEl = document.getElementById('model-name');
+    const connBtn = document.getElementById('conn-btn');
+    const connText = document.getElementById('conn-text');
     let currentAssistantEl = null;
     let assistantText = '';
 
     // Model switch button — triggers VS Code command
     modelBtn.addEventListener('click', () => {
       vscode.postMessage({ type: 'selectModel' });
+    });
+
+    // Connection test button
+    connBtn.addEventListener('click', () => {
+      connText.textContent = 'testing...';
+      vscode.postMessage({ type: 'testConnection' });
     });
 
     // Auto-approve toggles (F1.1 Should)
@@ -482,6 +514,19 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
         case 'modelChanged':
           if (modelNameEl) modelNameEl.textContent = msg.model;
+          break;
+
+        case 'connectionStatus':
+          if (msg.connected) {
+            connBtn.className = 'connected';
+            connBtn.title = msg.provider + ' connected (' + msg.modelCount + ' models)';
+            connText.textContent = msg.modelCount + ' models';
+          } else {
+            connBtn.className = 'disconnected';
+            connBtn.title = msg.provider + ' offline — click to retry';
+            connText.textContent = 'offline';
+            if (modelNameEl) modelNameEl.textContent = 'not connected';
+          }
           break;
 
         case 'newConversation':

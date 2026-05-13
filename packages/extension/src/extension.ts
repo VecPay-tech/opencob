@@ -223,10 +223,13 @@ export function activate(context: vscode.ExtensionContext): void {
         statusBarItem.text = `$(warning) ${provider} offline`;
         statusBarItem.tooltip = `OpenCob: Cannot reach ${provider}. Click to test connection.`;
         statusBarItem.command = 'OpenCob.testConnection';
+        chatProvider.setConnectionStatus(false, provider, 0);
         return;
       }
 
       const models = await llmAdapter.listModels();
+      chatProvider.setConnectionStatus(true, provider, models.length);
+
       if (models.length === 0) return;
 
       const currentChat = llmAdapter.getChatModel();
@@ -379,6 +382,7 @@ export function activate(context: vscode.ExtensionContext): void {
           const latency = Date.now() - start;
 
           if (!reachable) {
+            chatProvider.setConnectionStatus(false, provider, 0);
             vscode.window
               .showErrorMessage(
                 `OpenCob: ❌ Cannot reach ${provider} at ${baseUrl}\n\nCheck:\n• Is the server running?\n• Is the URL correct?\n• Is the API key valid?`,
@@ -397,6 +401,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
           // Connection OK — now try listing models
           const models = await llmAdapter.listModels();
+          chatProvider.setConnectionStatus(true, provider, models.length);
+          statusBarItem.text = `$(hubot) ${llmAdapter.getChatModel()}`;
+          statusBarItem.command = 'OpenCob.selectModel';
           const chatModel = llmAdapter.getChatModel();
           const completionModel = llmAdapter.getCompletionModel();
 
