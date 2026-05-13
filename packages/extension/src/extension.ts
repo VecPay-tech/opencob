@@ -211,8 +211,74 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const chatProvider = new ChatPanelProvider(context.extensionUri, agentLoop, modeEngine);
 
-  // Set initial model name in chat panel after webview resolves
-  setTimeout(() => chatProvider.setModel(llmAdapter.getChatModel()), 500);
+  // Auto-detect models from provider on startup
+  (async () => {
+    // Small delay to let webview resolve
+    await new Promise((r) => setTimeout(r, 1000));
+    chatProvider.setModel(llmAdapter.getChatModel());
+
+    try {
+      const reachable = await llmAdapter.isAvailable();
+      if (!reachable) {
+        statusBarItem.text = `$(warning) ${provider} offline`;
+        statusBarItem.tooltip = `OpenCob: Cannot reach ${provider}. Click to test connection.`;
+        statusBarItem.command = 'OpenCob.testConnection';
+        return;
+      }
+
+      const models = await llmAdapter.listModels();
+      if (models.length === 0) return;
+
+      const currentChat = llmAdapter.getChatModel();
+      const currentCompletion = llmAdapter.getCompletionModel();
+
+      // If user's configured model isn't available, prompt to pick one
+      if (!models.includes(currentChat)) {
+        const action = await vscode.window.showWarningMessage(
+          `OpenCob: Chat model "${currentChat}" not found on ${provider} (${models.length} models available).`,
+          'Pick a Model',
+          'Dismiss',
+        );
+        if (action === 'Pick a Model') {
+          const items = models.map((m) => ({ label: m }));
+          const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: `Select chat model from ${provider}`,
+          });
+          if (selected) {
+            llmAdapter.setChatModel(selected.label);
+            statusBarItem.text = `$(hubot) ${selected.label}`;
+            chatProvider.setModel(selected.label);
+            // Persist the choice to settings
+            await vscode.workspace
+              .getConfiguration('OpenCob')
+              .update('model.chat', selected.label, vscode.ConfigurationTarget.Global);
+          }
+        }
+      }
+
+      if (!models.includes(currentCompletion)) {
+        const action = await vscode.window.showWarningMessage(
+          `OpenCob: Completion model "${currentCompletion}" not found on ${provider}.`,
+          'Pick a Model',
+          'Dismiss',
+        );
+        if (action === 'Pick a Model') {
+          const items = models.map((m) => ({ label: m }));
+          const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: `Select completion model from ${provider}`,
+          });
+          if (selected) {
+            llmAdapter.setCompletionModel(selected.label);
+            await vscode.workspace
+              .getConfiguration('OpenCob')
+              .update('model.completion', selected.label, vscode.ConfigurationTarget.Global);
+          }
+        }
+      }
+    } catch {
+      // Silent — don't block activation
+    }
+  })();
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('OpenCob.chatPanel', chatProvider),
@@ -291,6 +357,84 @@ export function activate(context: vscode.ExtensionContext): void {
         llmAdapter.setCompletionModel(selected.label);
         vscode.window.showInformationMessage(`OpenCob: Completion model → ${selected.label}`);
       }
+    }),
+
+    // Test connection to the configured provider
+    vscode.commands.registerCommand('OpenCob.testConnection', async () => {
+      const providerSection = provider === 'openai-compatible' ? 'openaiCompatible' : provider;
+      const baseUrl =
+        provider === 'ollama'
+          ? config.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434')
+          : config.get<string>(`${providerSection}.baseUrl`, '');
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Testing connection to ${provider}...`,
+          cancellable: false,
+        },
+        async () => {
+          const start = Date.now();
+          const reachable = await llmAdapter.isAvailable();
+          const latency = Date.now() - start;
+
+          if (!reachable) {
+            vscode.window
+              .showErrorMessage(
+                `OpenCob: ❌ Cannot reach ${provider} at ${baseUrl}\n\nCheck:\n• Is the server running?\n• Is the URL correct?\n• Is the API key valid?`,
+                'Open Settings',
+              )
+              .then((action) => {
+                if (action === 'Open Settings') {
+                  vscode.commands.executeCommand(
+                    'workbench.action.openSettings',
+                    `OpenCob.${providerSection}`,
+                  );
+                }
+              });
+            return;
+          }
+
+          // Connection OK — now try listing models
+          const models = await llmAdapter.listModels();
+          const chatModel = llmAdapter.getChatModel();
+          const completionModel = llmAdapter.getCompletionModel();
+
+          const chatAvailable = models.includes(chatModel);
+          const completionAvailable = models.includes(completionModel);
+
+          let message = `✅ Connected to **${provider}** (${latency}ms)\n`;
+          message += `\n📡 Endpoint: ${baseUrl}`;
+          message += `\n📦 Models available: ${models.length}`;
+          message += `\n💬 Chat model: ${chatModel} ${chatAvailable ? '✅' : '⚠️ not found'}`;
+          message += `\n⚡ Completion model: ${completionModel} ${completionAvailable ? '✅' : '⚠️ not found'}`;
+
+          if (!chatAvailable || !completionAvailable) {
+            const action = await vscode.window.showWarningMessage(
+              `OpenCob: Connected to ${provider} (${models.length} models, ${latency}ms) but some configured models not found.`,
+              'Select Chat Model',
+              'Select Completion Model',
+              'Show All Models',
+            );
+            if (action === 'Select Chat Model') {
+              vscode.commands.executeCommand('OpenCob.selectModel');
+            } else if (action === 'Select Completion Model') {
+              vscode.commands.executeCommand('OpenCob.selectCompletionModel');
+            } else if (action === 'Show All Models') {
+              const modelList = models.join('\n');
+              const doc = await vscode.workspace.openTextDocument({
+                content: `# Available models on ${provider}\n# Endpoint: ${baseUrl}\n# Total: ${models.length}\n\n${modelList}`,
+                language: 'markdown',
+              });
+              vscode.window.showTextDocument(doc, { preview: true });
+            }
+          } else {
+            vscode.window.showInformationMessage(
+              `OpenCob: ✅ ${provider} connected (${models.length} models, ${latency}ms) — chat: ${chatModel}, completion: ${completionModel}`,
+            );
+          }
+        },
+      );
     }),
 
     // Undo last turn (F20 / F6.4)

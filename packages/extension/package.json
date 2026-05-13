@@ -50,6 +50,10 @@
         "title": "OpenCob: Select Completion Model"
       },
       {
+        "command": "OpenCob.testConnection",
+        "title": "OpenCob: Test Provider Connection"
+      },
+      {
         "command": "OpenCob.undoLastTurn",
         "title": "OpenCob: Undo Last Turn"
       },
