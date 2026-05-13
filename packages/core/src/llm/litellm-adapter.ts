@@ -6,33 +6,82 @@ import type {
   CompletionResponse,
 } from './types.js';
 
-export interface LiteLLMConfig {
+export interface OpenAICompatibleConfig {
   baseUrl: string;
   apiKey: string;
   chatModel: string;
   completionModel: string;
   embeddingModel?: string;
+  providerName?: string;
 }
 
-const DEFAULT_CONFIG: LiteLLMConfig = {
+/** @deprecated Use OpenAICompatibleConfig */
+export type LiteLLMConfig = OpenAICompatibleConfig;
+
+const DEFAULT_CONFIG: OpenAICompatibleConfig = {
   baseUrl: 'http://127.0.0.1:4000',
   apiKey: '',
   chatModel: 'azure/gpt-5-mini-EU',
   completionModel: 'azure/gpt-5-nano-EU',
   embeddingModel: 'azure/text-embedding-3-large',
+  providerName: 'openai-compatible',
 };
 
 /**
- * LLM adapter for LiteLLM proxy (OpenAI-compatible API).
- * Supports any model accessible through the proxy including Azure OpenAI,
- * Anthropic via Vertex, and any other provider configured in LiteLLM.
+ * Provider presets for common LLM services.
+ * All use the OpenAI-compatible chat/completions protocol.
  */
-export class LiteLLMAdapter implements LlmAdapter {
-  readonly name = 'litellm';
-  private config: LiteLLMConfig;
+export const PROVIDER_PRESETS: Record<string, Partial<OpenAICompatibleConfig>> = {
+  litellm: {
+    baseUrl: 'http://127.0.0.1:4000',
+    chatModel: 'azure/gpt-5-mini-EU',
+    completionModel: 'azure/gpt-5-nano-EU',
+    providerName: 'litellm',
+  },
+  openai: {
+    baseUrl: 'https://api.openai.com',
+    chatModel: 'gpt-4o',
+    completionModel: 'gpt-4o-mini',
+    providerName: 'openai',
+  },
+  azure: {
+    baseUrl: 'https://YOUR_RESOURCE.openai.azure.com',
+    chatModel: 'gpt-4o',
+    completionModel: 'gpt-4o-mini',
+    providerName: 'azure',
+  },
+  anthropic: {
+    baseUrl: 'https://api.anthropic.com',
+    chatModel: 'claude-sonnet-4-5-20250514',
+    completionModel: 'claude-haiku-4-5-20250514',
+    providerName: 'anthropic',
+  },
+  gemini: {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    chatModel: 'gemini-2.5-flash',
+    completionModel: 'gemini-2.5-flash',
+    providerName: 'gemini',
+  },
+  'openai-compatible': {
+    baseUrl: 'http://127.0.0.1:8000',
+    chatModel: 'default',
+    completionModel: 'default',
+    providerName: 'openai-compatible',
+  },
+};
 
-  constructor(config?: Partial<LiteLLMConfig>) {
+/**
+ * Universal adapter for OpenAI-compatible APIs.
+ * Works with: LiteLLM proxy, OpenAI, Azure OpenAI, Anthropic, Google Gemini,
+ * and any endpoint that implements the /v1/chat/completions protocol.
+ */
+export class OpenAICompatibleAdapter implements LlmAdapter {
+  readonly name: string;
+  private config: OpenAICompatibleConfig;
+
+  constructor(config?: Partial<OpenAICompatibleConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.name = this.config.providerName ?? 'openai-compatible';
   }
 
   private get headers(): Record<string, string> {
@@ -64,7 +113,7 @@ export class LiteLLMAdapter implements LlmAdapter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      yield { type: 'error', error: `LiteLLM error: ${response.status} ${text}` };
+      yield { type: 'error', error: `${this.name} error: ${response.status} ${text}` };
       return;
     }
 
@@ -145,7 +194,7 @@ export class LiteLLMAdapter implements LlmAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`LiteLLM completion error: ${response.status}`);
+      throw new Error(`${this.name} completion error: ${response.status}`);
     }
 
     const result = await response.json();
@@ -193,3 +242,6 @@ export class LiteLLMAdapter implements LlmAdapter {
     return this.config.completionModel;
   }
 }
+
+/** @deprecated Use OpenAICompatibleAdapter */
+export const LiteLLMAdapter = OpenAICompatibleAdapter;

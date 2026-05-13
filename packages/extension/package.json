@@ -106,24 +106,32 @@
           "enum": [
             "ollama",
             "litellm",
+            "openai",
+            "azure",
+            "anthropic",
+            "gemini",
             "openai-compatible"
           ],
           "enumDescriptions": [
             "Local Ollama server (default, privacy-first)",
-            "LiteLLM proxy (OpenAI-compatible gateway to Azure, Anthropic, etc.)",
-            "Any OpenAI-compatible API endpoint"
+            "LiteLLM proxy (OpenAI-compatible gateway to multiple providers)",
+            "OpenAI API (GPT-4o, GPT-5, o1, etc.)",
+            "Azure OpenAI Service",
+            "Anthropic API (Claude Sonnet, Haiku, Opus)",
+            "Google Gemini API (Gemini 2.5 Flash/Pro)",
+            "Any custom OpenAI-compatible endpoint"
           ],
           "description": "LLM provider for inference"
         },
         "OpenCob.model.chat": {
           "type": "string",
           "default": "qwen2.5-coder:7b",
-          "description": "Model for chat interactions"
+          "description": "Model for chat interactions (model name depends on selected provider)"
         },
         "OpenCob.model.completion": {
           "type": "string",
           "default": "qwen2.5-coder:1.5b",
-          "description": "Model for inline code completion (FIM)"
+          "description": "Model for inline code completion (model name depends on selected provider)"
         },
         "OpenCob.ollama.baseUrl": {
           "type": "string",
@@ -133,12 +141,62 @@
         "OpenCob.litellm.baseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:4000",
-          "description": "LiteLLM proxy base URL (e.g., https://your-litellm-proxy.azurecontainerapps.io)"
+          "description": "LiteLLM proxy base URL"
         },
         "OpenCob.litellm.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key for LiteLLM proxy (Bearer token)"
+          "description": "API key for LiteLLM proxy"
+        },
+        "OpenCob.openai.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com",
+          "description": "OpenAI API base URL"
+        },
+        "OpenCob.openai.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI API key"
+        },
+        "OpenCob.azure.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI endpoint (e.g., https://your-resource.openai.azure.com)"
+        },
+        "OpenCob.azure.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Azure OpenAI API key"
+        },
+        "OpenCob.anthropic.baseUrl": {
+          "type": "string",
+          "default": "https://api.anthropic.com",
+          "description": "Anthropic API base URL"
+        },
+        "OpenCob.anthropic.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key"
+        },
+        "OpenCob.gemini.baseUrl": {
+          "type": "string",
+          "default": "https://generativelanguage.googleapis.com/v1beta/openai",
+          "description": "Google Gemini API base URL (OpenAI-compatible endpoint)"
+        },
+        "OpenCob.gemini.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API key"
+        },
+        "OpenCob.openaiCompatible.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "Custom OpenAI-compatible API base URL"
+        },
+        "OpenCob.openaiCompatible.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for custom OpenAI-compatible endpoint"
         },
         "OpenCob.autoApprove.read": {
           "type": "boolean",

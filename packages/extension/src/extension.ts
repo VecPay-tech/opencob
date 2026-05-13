@@ -7,7 +7,8 @@ import { EEClient } from './enterprise/ee-client.js';
 import {
   ModeEngine,
   OllamaAdapter,
-  LiteLLMAdapter,
+  OpenAICompatibleAdapter,
+  PROVIDER_PRESETS,
   ToolRegistry,
   ConversationManager,
   AgentLoop,
@@ -69,19 +70,26 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = config.get<string>('model.provider', 'ollama');
 
   // Create the appropriate LLM adapter based on provider setting
-  let llmAdapter: OllamaAdapter | LiteLLMAdapter;
-  if (provider === 'litellm' || provider === 'openai-compatible') {
-    llmAdapter = new LiteLLMAdapter({
-      baseUrl: config.get<string>('litellm.baseUrl', 'http://127.0.0.1:4000'),
-      apiKey: config.get<string>('litellm.apiKey', ''),
-      chatModel: config.get<string>('model.chat', 'azure/gpt-5-mini-EU'),
-      completionModel: config.get<string>('model.completion', 'azure/gpt-5-nano-EU'),
-    });
-  } else {
+  let llmAdapter: OllamaAdapter | OpenAICompatibleAdapter;
+  if (provider === 'ollama') {
     llmAdapter = new OllamaAdapter({
       baseUrl: config.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434'),
       chatModel: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
       completionModel: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
+    });
+  } else {
+    // All non-Ollama providers use OpenAI-compatible protocol
+    const presets = PROVIDER_PRESETS[provider] ?? PROVIDER_PRESETS['openai-compatible'];
+    const providerSection = provider === 'openai-compatible' ? 'openaiCompatible' : provider;
+    llmAdapter = new OpenAICompatibleAdapter({
+      baseUrl: config.get<string>(`${providerSection}.baseUrl`, presets.baseUrl ?? ''),
+      apiKey: config.get<string>(`${providerSection}.apiKey`, ''),
+      chatModel: config.get<string>('model.chat', presets.chatModel ?? 'gpt-4o'),
+      completionModel: config.get<string>(
+        'model.completion',
+        presets.completionModel ?? 'gpt-4o-mini',
+      ),
+      providerName: provider,
     });
   }
 
