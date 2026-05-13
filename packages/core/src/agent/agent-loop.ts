@@ -15,7 +15,17 @@ import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
 export interface AgentEvent {
-  type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'done' | 'mode_switch' | 'self_correction' | 'compaction' | 'verification' | 'skill_activated';
+  type:
+    | 'text'
+    | 'tool_call'
+    | 'tool_result'
+    | 'error'
+    | 'done'
+    | 'mode_switch'
+    | 'self_correction'
+    | 'compaction'
+    | 'verification'
+    | 'skill_activated';
   text?: string;
   toolCall?: { name: string; parameters: Record<string, unknown> };
   toolResult?: ToolExecutionResult;
@@ -83,9 +93,10 @@ export class AgentLoop {
       : null;
     this.compactor = this.config.enableCompaction ? new ConversationCompactor(llm) : null;
     this.snapshotManager = snapshotManager ?? null;
-    this.postEditVerifier = this.config.workspaceRoot && this.config.enablePostEditVerification
-      ? new PostEditVerifier(this.config.workspaceRoot)
-      : null;
+    this.postEditVerifier =
+      this.config.workspaceRoot && this.config.enablePostEditVerification
+        ? new PostEditVerifier(this.config.workspaceRoot)
+        : null;
     this.complexityClassifier = new TaskComplexityClassifier();
     this.ragPipeline = this.config.ragPipeline ?? null;
     this.skillsLoader = this.config.skillsLoader ?? null;
@@ -107,10 +118,14 @@ export class AgentLoop {
     if (trimmed.startsWith('/')) {
       const [cmd] = trimmed.split(/\s+/);
       const promptCommands: Record<string, string> = {
-        '/explain': 'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
-        '/fix': 'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
-        '/test': 'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
-        '/review': 'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
+        '/explain':
+          'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
+        '/fix':
+          'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
+        '/test':
+          'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
+        '/review':
+          'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
       };
       if (cmd in promptCommands) {
         const remainder = trimmed.slice(cmd.length).trim();
@@ -146,9 +161,12 @@ export class AgentLoop {
     if (this.ragPipeline) {
       const retrieved = this.ragPipeline.retrieve(processedMessage, { topK: 5, minScore: 0.1 });
       if (retrieved.length > 0) {
-        const snippets = retrieved.map((r) =>
-          `<context source="${r.source}" file="${r.filePath}" lines="${r.startLine}-${r.endLine}" score="${r.score.toFixed(2)}">\n${r.content}\n</context>`
-        ).join('\n');
+        const snippets = retrieved
+          .map(
+            (r) =>
+              `<context source="${r.source}" file="${r.filePath}" lines="${r.startLine}-${r.endLine}" score="${r.score.toFixed(2)}">\n${r.content}\n</context>`,
+          )
+          .join('\n');
         ragContext = `\n\n<retrieved_context>\n${snippets}\n</retrieved_context>`;
       }
     }
@@ -321,7 +339,11 @@ export class AgentLoop {
       }
 
       // Self-correction: if execute_command failed (non-zero exit), try to diagnose and fix
-      if (!result.success && pendingToolCall.name === 'execute_command' && selfCorrectionAttempts < maxCorrections) {
+      if (
+        !result.success &&
+        pendingToolCall.name === 'execute_command' &&
+        selfCorrectionAttempts < maxCorrections
+      ) {
         selfCorrectionAttempts++;
         yield {
           type: 'self_correction',
@@ -393,17 +415,21 @@ export class AgentLoop {
         return { type: 'done', text: 'Nothing to undo.' };
       }
       const fileList = result.restoredFiles.join('\n  ');
-      return { type: 'done', text: `Undid turn ${result.turnId}. Restored ${result.restoredFiles.length} file(s):\n  ${fileList}` };
+      return {
+        type: 'done',
+        text: `Undid turn ${result.turnId}. Restored ${result.restoredFiles.length} file(s):\n  ${fileList}`,
+      };
     }
 
     if (command === '/help') {
       const available = this.toolRegistry.listAvailable();
       const toolList = available.map((t) => `  ${t.name} — ${t.description}`).join('\n');
-      const customCmdList = this.customCommands.size > 0
-        ? Array.from(this.customCommands.entries())
-            .map(([name, cmd]) => `  /${name} — ${cmd.description}`)
-            .join('\n')
-        : '';
+      const customCmdList =
+        this.customCommands.size > 0
+          ? Array.from(this.customCommands.entries())
+              .map(([name, cmd]) => `  /${name} — ${cmd.description}`)
+              .join('\n')
+          : '';
       const help = [
         'Available commands:',
         '  /code        — Switch to Code mode',
@@ -413,7 +439,7 @@ export class AgentLoop {
         '  /orchestrator — Switch to Orchestrator mode',
         '  /new         — Start a new conversation',
         '  /clear       — Clear conversation',
-        '  /undo        — Undo last turn\'s file changes',
+        "  /undo        — Undo last turn's file changes",
         '  /explain     — Explain selected code or file',
         '  /fix         — Fix errors in code',
         '  /test        — Generate tests',
@@ -423,17 +449,23 @@ export class AgentLoop {
         '',
         `Available tools (${this.modeEngine.getActive().name} mode):`,
         toolList || '  (no tools available in this mode)',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
 
       return { type: 'done', text: help };
     }
 
     // Slash commands that inject a prompt prefix and continue to the agent loop
     const promptCommands: Record<string, string> = {
-      '/explain': 'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
-      '/fix': 'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
-      '/test': 'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
-      '/review': 'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
+      '/explain':
+        'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
+      '/fix':
+        'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
+      '/test':
+        'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
+      '/review':
+        'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
     };
 
     if (command in promptCommands) {
@@ -510,7 +542,9 @@ export class AgentLoop {
     const toolDocs = tools
       .map((t) => {
         const params = t.parameters
-          .map((p) => `  - ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`)
+          .map(
+            (p) => `  - ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`,
+          )
           .join('\n');
         return `### ${t.name}\n${t.description}\nParameters:\n${params}`;
       })

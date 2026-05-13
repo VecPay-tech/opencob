@@ -17,7 +17,8 @@ export interface MentionParseResult {
 }
 
 // Match @file{path} or @file(path) or @problems or @terminal or @git-changes or @<commit-hash> or @path/to/file.ext
-const MENTION_REGEX = /@(file|folder|problems|terminal|git-changes|git-commit|url)\{([^}]+)\}|@(file|folder)\(([^)]+)\)|@([0-9a-f]{7,40})\b|@([\w./\\-]+\.\w+)/g;
+const MENTION_REGEX =
+  /@(file|folder|problems|terminal|git-changes|git-commit|url)\{([^}]+)\}|@(file|folder)\(([^)]+)\)|@([0-9a-f]{7,40})\b|@([\w./\\-]+\.\w+)/g;
 
 /**
  * Parse @mentions in user messages and resolve file contents.
@@ -91,9 +92,7 @@ export class MentionParser {
     for (let i = mentions.length - 1; i >= 0; i--) {
       const m = mentions[i];
       cleanText =
-        cleanText.slice(0, m.startIndex) +
-        `[${m.type}: ${m.value}]` +
-        cleanText.slice(m.endIndex);
+        cleanText.slice(0, m.startIndex) + `[${m.type}: ${m.value}]` + cleanText.slice(m.endIndex);
     }
 
     const contextBlock = this.buildContextBlock(mentions);
@@ -137,9 +136,7 @@ export class MentionParser {
 
     try {
       const entries = await fs.readdir(resolved, { withFileTypes: true });
-      const listing = entries
-        .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
-        .join('\n');
+      const listing = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).join('\n');
       return listing;
     } catch {
       return `[Error: could not list folder ${folderPath}]`;
@@ -177,9 +174,7 @@ export class MentionParser {
       }
     }
 
-    return blocks.length > 0
-      ? `\n\n## Referenced Context\n\n${blocks.join('\n\n')}`
-      : '';
+    return blocks.length > 0 ? `\n\n## Referenced Context\n\n${blocks.join('\n\n')}` : '';
   }
 
   /** Resolve @git-changes — git status + diff of uncommitted changes */
@@ -207,9 +202,10 @@ export class MentionParser {
 
       // Truncate large diffs
       const maxChars = 15_000;
-      const truncatedDiff = fullDiff.length > maxChars
-        ? fullDiff.slice(0, maxChars) + `\n... [truncated at ${maxChars} chars]`
-        : fullDiff;
+      const truncatedDiff =
+        fullDiff.length > maxChars
+          ? fullDiff.slice(0, maxChars) + `\n... [truncated at ${maxChars} chars]`
+          : fullDiff;
 
       return `## Status\n${status}\n\n## Diff Summary\n${diff}\n\n## Full Diff\n${truncatedDiff}`;
     } catch {
@@ -239,9 +235,8 @@ export class MentionParser {
 
       // Truncate
       const maxChars = 15_000;
-      const truncated = diff.length > maxChars
-        ? diff.slice(0, maxChars) + `\n... [truncated]`
-        : diff;
+      const truncated =
+        diff.length > maxChars ? diff.slice(0, maxChars) + `\n... [truncated]` : diff;
 
       return `## Commit Info\n${info}\n\n## Changes\n${truncated}`;
     } catch {

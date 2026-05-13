@@ -19,14 +19,16 @@ export interface RetrievalOptions {
 
 /** Simple TF-IDF style scoring for keyword search */
 function tokenize(text: string): string[] {
-  return text
-    // Split camelCase/PascalCase before lowercasing
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .toLowerCase()
-    .replace(/[^a-z0-9_]/g, ' ')
-    .split(/\s+/)
-    .filter((t) => t.length > 1);
+  return (
+    text
+      // Split camelCase/PascalCase before lowercasing
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length > 1)
+  );
 }
 
 /**
@@ -248,7 +250,7 @@ export class RAGPipeline {
         if (contentLower.includes(word)) matchCount++;
       }
       if (matchCount > 0) {
-        const score = matchCount / queryWords.length * 0.5; // keyword scores are 0–0.5
+        const score = (matchCount / queryWords.length) * 0.5; // keyword scores are 0–0.5
         results.push({
           filePath: chunk.filePath,
           startLine: chunk.startLine,

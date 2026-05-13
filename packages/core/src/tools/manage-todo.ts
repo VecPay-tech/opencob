@@ -84,7 +84,7 @@ export function createManageTodoTool(): Tool {
           const statusIcon: Record<string, string> = {
             'not-started': '⬜',
             'in-progress': '🔄',
-            'completed': '✅',
+            completed: '✅',
           };
           const lines = todos.map(
             (t) => `${statusIcon[t.status]} #${t.id}: ${t.title} [${t.status}]`,
@@ -97,7 +97,10 @@ export function createManageTodoTool(): Tool {
         }
 
         default:
-          return { success: false, content: `Unknown action: "${action}". Use "add", "update", or "list".` };
+          return {
+            success: false,
+            content: `Unknown action: "${action}". Use "add", "update", or "list".`,
+          };
       }
     },
   };

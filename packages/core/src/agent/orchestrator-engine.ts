@@ -96,7 +96,12 @@ Respond ONLY with valid JSON.`;
         mode: 'code',
         status: 'pending',
       });
-    } else if (lower.includes('explain') || lower.includes('what') || lower.includes('how') || lower.includes('why')) {
+    } else if (
+      lower.includes('explain') ||
+      lower.includes('what') ||
+      lower.includes('how') ||
+      lower.includes('why')
+    ) {
       subtasks.push({
         id: 1,
         description: goal,

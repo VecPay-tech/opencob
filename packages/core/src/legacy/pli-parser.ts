@@ -164,7 +164,10 @@ export class PliParser {
 
         const procName = procMatch[1];
         const params = procMatch[2]
-          ? procMatch[2].split(',').map((p) => p.trim()).filter(Boolean)
+          ? procMatch[2]
+              .split(',')
+              .map((p) => p.trim())
+              .filter(Boolean)
           : [];
         const returns = procMatch[3]?.trim();
 
@@ -196,9 +199,7 @@ export class PliParser {
 
       // ── DECLARE / DCL statements ─────────────────────────────────
 
-      const dclMatch = trimmed.match(
-        /^(?:DECLARE|DCL)\s+(\d+\s+)?(\w+)\s*(.*?)\s*[,;]?$/i,
-      );
+      const dclMatch = trimmed.match(/^(?:DECLARE|DCL)\s+(\d+\s+)?(\w+)\s*(.*?)\s*[,;]?$/i);
       if (dclMatch) {
         const level = dclMatch[1] ? parseInt(dclMatch[1].trim(), 10) : undefined;
         const name = dclMatch[2];

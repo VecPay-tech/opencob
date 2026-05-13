@@ -11,8 +11,18 @@ export function createApplyDiffTool(workspaceRoot: string): Tool {
       'The oldString must match exactly one location in the file. ' +
       'Provide sufficient context lines for a unique match.',
     parameters: [
-      { name: 'path', type: 'string', description: 'Relative path to the file from workspace root', required: true },
-      { name: 'oldString', type: 'string', description: 'The exact text to find and replace (must match exactly once)', required: true },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Relative path to the file from workspace root',
+        required: true,
+      },
+      {
+        name: 'oldString',
+        type: 'string',
+        description: 'The exact text to find and replace (must match exactly once)',
+        required: true,
+      },
       { name: 'newString', type: 'string', description: 'The replacement text', required: true },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {

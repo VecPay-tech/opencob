@@ -38,11 +38,11 @@ This project follows the [Contributor Covenant v2.1](CODE_OF_CONDUCT.md). By par
 
 ### Prerequisites
 
-| Tool | Version | Install |
-|---|---|---|
-| Node.js | >= 22.0.0 | [nodejs.org](https://nodejs.org/) |
-| pnpm | >= 10.0.0 | `npm install -g pnpm` |
-| Git | >= 2.40 | [git-scm.com](https://git-scm.com/) |
+| Tool    | Version   | Install                             |
+| ------- | --------- | ----------------------------------- |
+| Node.js | >= 22.0.0 | [nodejs.org](https://nodejs.org/)   |
+| pnpm    | >= 10.0.0 | `npm install -g pnpm`               |
+| Git     | >= 2.40   | [git-scm.com](https://git-scm.com/) |
 
 ### Build & Test
 
@@ -166,28 +166,28 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ### Types
 
-| Type | Description |
-|---|---|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
-| `style` | Formatting, missing semicolons, etc. |
+| Type       | Description                                             |
+| ---------- | ------------------------------------------------------- |
+| `feat`     | New feature                                             |
+| `fix`      | Bug fix                                                 |
+| `docs`     | Documentation only                                      |
+| `style`    | Formatting, missing semicolons, etc.                    |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `perf` | Performance improvement |
-| `test` | Adding or correcting tests |
-| `build` | Build system or external dependencies |
-| `ci` | CI configuration |
-| `chore` | Other changes that don't modify src or test files |
+| `perf`     | Performance improvement                                 |
+| `test`     | Adding or correcting tests                              |
+| `build`    | Build system or external dependencies                   |
+| `ci`       | CI configuration                                        |
+| `chore`    | Other changes that don't modify src or test files       |
 
 ### Scopes
 
-| Scope | Package |
-|---|---|
-| `core` | `@opencob/core` |
-| `cli` | `@opencob/cli` |
+| Scope       | Package              |
+| ----------- | -------------------- |
+| `core`      | `@opencob/core`      |
+| `cli`       | `@opencob/cli`       |
 | `extension` | `@opencob/extension` |
-| `docs` | Documentation |
-| `deps` | Dependencies |
+| `docs`      | Documentation        |
+| `deps`      | Dependencies         |
 
 ### Examples
 

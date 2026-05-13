@@ -37,7 +37,8 @@ export function createInsertContentTool(workspaceRoot: string): Tool {
       const content = params.content as string;
 
       if (!filePath) return { success: false, content: 'Error: path is required' };
-      if (position === undefined || position === null) return { success: false, content: 'Error: position is required' };
+      if (position === undefined || position === null)
+        return { success: false, content: 'Error: position is required' };
       if (!content) return { success: false, content: 'Error: content is required' };
 
       const fullPath = path.resolve(workspaceRoot, filePath);

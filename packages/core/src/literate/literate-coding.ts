@@ -15,8 +15,8 @@ export interface LiterateBlock {
   line: number;
   endLine: number;
   language: string;
-  prefix: string;  // code before the block
-  suffix: string;  // code after the block
+  prefix: string; // code before the block
+  suffix: string; // code after the block
 }
 
 export interface LiterateResult {
@@ -37,7 +37,6 @@ const LITERATE_MARKERS = [
  * natural language blocks embedded in source code.
  */
 export class LiterateCodingEngine {
-
   /** Detect all literate blocks in a document */
   detectBlocks(content: string, language: string): LiterateBlock[] {
     const lines = content.split('\n');

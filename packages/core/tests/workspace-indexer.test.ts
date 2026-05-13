@@ -97,7 +97,9 @@ describe('WorkspaceIndexer', () => {
     fs.writeFileSync(path.join(tmpDir, 'b.ts'), 'export const b = 2;');
 
     let lastStatus: any = null;
-    indexer.onProgress((s) => { lastStatus = s; });
+    indexer.onProgress((s) => {
+      lastStatus = s;
+    });
     await indexer.indexWorkspace();
 
     expect(lastStatus).not.toBeNull();

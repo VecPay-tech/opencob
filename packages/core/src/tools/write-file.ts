@@ -10,8 +10,18 @@ export function createWriteFileTool(workspaceRoot: string): Tool {
       'Create a new file or overwrite an existing file with the provided content. ' +
       'Directories are created automatically if they do not exist.',
     parameters: [
-      { name: 'path', type: 'string', description: 'Relative path to the file from workspace root', required: true },
-      { name: 'content', type: 'string', description: 'The full content to write to the file', required: true },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Relative path to the file from workspace root',
+        required: true,
+      },
+      {
+        name: 'content',
+        type: 'string',
+        description: 'The full content to write to the file',
+        required: true,
+      },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const filePath = params.path as string;

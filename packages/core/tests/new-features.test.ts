@@ -167,7 +167,13 @@ describe('OrchestratorEngine', () => {
     const plan = {
       goal: 'fix and explain',
       subtasks: [
-        { id: 1, description: 'analyze', mode: 'ask', status: 'done', result: 'Found issue in auth.ts' },
+        {
+          id: 1,
+          description: 'analyze',
+          mode: 'ask',
+          status: 'done',
+          result: 'Found issue in auth.ts',
+        },
         { id: 2, description: 'fix the bug', mode: 'code', status: 'pending' },
       ],
     };

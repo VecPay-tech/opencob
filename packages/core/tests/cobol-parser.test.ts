@@ -45,7 +45,10 @@ describe('CobolParser', () => {
     const program = parser.parse(SAMPLE_COBOL, 'CUSTMGMT.cob');
     expect(program.divisions.length).toBe(4);
     expect(program.divisions.map((d) => d.name)).toEqual([
-      'IDENTIFICATION', 'ENVIRONMENT', 'DATA', 'PROCEDURE',
+      'IDENTIFICATION',
+      'ENVIRONMENT',
+      'DATA',
+      'PROCEDURE',
     ]);
   });
 

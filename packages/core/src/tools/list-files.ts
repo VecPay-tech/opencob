@@ -11,8 +11,18 @@ export function createListFilesTool(workspaceRoot: string): Tool {
       'Returns entries with type indicators (/ for directories). ' +
       'Set recursive=true to list all files recursively.',
     parameters: [
-      { name: 'path', type: 'string', description: 'Relative path from workspace root (default: ".")', required: false },
-      { name: 'recursive', type: 'boolean', description: 'List files recursively', required: false },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Relative path from workspace root (default: ".")',
+        required: false,
+      },
+      {
+        name: 'recursive',
+        type: 'boolean',
+        description: 'List files recursively',
+        required: false,
+      },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const relInput = (params.path as string) || '.';

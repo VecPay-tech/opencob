@@ -195,7 +195,11 @@ export class RpgParser {
       const dsMatch = upper.match(/^DCL-DS\s+(\S+)/);
       if (dsMatch) {
         const origDsMatch = trimmed.match(/^DCL-DS\s+(\S+)/i);
-        currentDs = { name: this.cleanName(origDsMatch?.[1] ?? dsMatch[1]), line: lineNum, fields: [] };
+        currentDs = {
+          name: this.cleanName(origDsMatch?.[1] ?? dsMatch[1]),
+          line: lineNum,
+          fields: [],
+        };
         continue;
       }
 
@@ -266,7 +270,10 @@ export class RpgParser {
       const indMatch = trimmed.match(/\*IN(\d{2})/g);
       if (indMatch) {
         for (const ind of indMatch) {
-          const usage = upper.includes('IF') || upper.includes('WHEN') || upper.includes('DOW') ? 'test' : 'set';
+          const usage =
+            upper.includes('IF') || upper.includes('WHEN') || upper.includes('DOW')
+              ? 'test'
+              : 'set';
           program.indicators.push({ name: ind, line: lineNum, usage });
         }
       }
@@ -376,12 +383,7 @@ export class RpgParser {
   }
 
   private resolveCopy(name: string): string | undefined {
-    const variants = [
-      name,
-      `${name}.rpgle`,
-      `${name}.rpg`,
-      `${name}.RPGLE`,
-    ];
+    const variants = [name, `${name}.rpgle`, `${name}.rpg`, `${name}.RPGLE`];
 
     for (const searchPath of this.copyPaths) {
       for (const variant of variants) {

@@ -15,10 +15,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     private readonly llm: LlmAdapter,
     private readonly redactionEngine: RedactionEngine,
   ) {
-    this.statusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      99,
-    );
+    this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
     this.statusBarItem.text = '$(loading~spin) OpenCob';
     this.statusBarItem.tooltip = 'OpenCob: Generating completion...';
   }
@@ -127,10 +124,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
       if (!completionText) return null;
 
       return [
-        new vscode.InlineCompletionItem(
-          completionText,
-          new vscode.Range(position, position),
-        ),
+        new vscode.InlineCompletionItem(completionText, new vscode.Range(position, position)),
       ];
     } finally {
       this.statusBarItem.hide();
@@ -154,7 +148,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     const importPaths: string[] = [];
 
     // Match import statements and require calls
-    const importRegex = /(?:import\s+.*?\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+    const importRegex =
+      /(?:import\s+.*?\s+from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
     let match: RegExpExecArray | null;
     while ((match = importRegex.exec(text)) !== null) {
       const importPath = match[1] ?? match[2];
@@ -170,7 +165,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     const snippets: string[] = [];
     let totalChars = 0;
 
-    for (const importPath of importPaths.slice(0, 5)) { // Limit to 5 imports
+    for (const importPath of importPaths.slice(0, 5)) {
+      // Limit to 5 imports
       if (totalChars >= MAX_CROSS_FILE_CHARS) break;
 
       try {
@@ -184,7 +180,9 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
             const uri = vscode.Uri.joinPath(dir, importPath + ext);
             resolvedDoc = await vscode.workspace.openTextDocument(uri);
             break;
-          } catch { /* try next extension */ }
+          } catch {
+            /* try next extension */
+          }
         }
 
         if (!resolvedDoc) continue;
@@ -203,7 +201,9 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
             totalChars += snippet.length;
           }
         }
-      } catch { /* skip unresolvable imports */ }
+      } catch {
+        /* skip unresolvable imports */
+      }
     }
 
     return snippets.join('\n');

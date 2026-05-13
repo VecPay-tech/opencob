@@ -56,7 +56,10 @@ async function main(): Promise<void> {
         const paramStr = JSON.stringify(params, null, 2);
         console.log(`\n🔧 Tool: ${tool.name}`);
         console.log(`   Parameters: ${paramStr}`);
-        const approvalRl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const approvalRl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
         approvalRl.question('   Approve? (y/n): ', (answer) => {
           approvalRl.close();
           resolve(answer.trim().toLowerCase() === 'y');
@@ -123,7 +126,9 @@ async function main(): Promise<void> {
           process.stdout.write(event.text ?? '');
           break;
         case 'tool_call':
-          console.log(`\n🔧 ${event.toolCall?.name}(${JSON.stringify(event.toolCall?.parameters)})`);
+          console.log(
+            `\n🔧 ${event.toolCall?.name}(${JSON.stringify(event.toolCall?.parameters)})`,
+          );
           break;
         case 'tool_result':
           console.log(`${event.toolResult?.success ? '✅' : '❌'} ${event.toolResult?.content}`);
@@ -188,7 +193,9 @@ async function main(): Promise<void> {
           process.stdout.write(event.text ?? '');
           break;
         case 'tool_call':
-          console.log(`\n🔧 ${event.toolCall?.name}(${JSON.stringify(event.toolCall?.parameters)})`);
+          console.log(
+            `\n🔧 ${event.toolCall?.name}(${JSON.stringify(event.toolCall?.parameters)})`,
+          );
           break;
         case 'tool_result':
           console.log(`${event.toolResult?.success ? '✅' : '❌'} ${event.toolResult?.content}`);

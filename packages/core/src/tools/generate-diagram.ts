@@ -102,7 +102,8 @@ function generateDependencyDiagram(files: string[], root: string): string {
     nodes.add(nodeId);
 
     // Extract imports
-    const importRegex = /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+    const importRegex =
+      /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
     let match;
     while ((match = importRegex.exec(content)) !== null) {
       const importPath = match[1] ?? match[2];
@@ -158,7 +159,8 @@ function generateClassDiagram(files: string[], root: string): string {
 
   for (const file of files) {
     const content = fs.readFileSync(file, 'utf-8');
-    const classRegex = /(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
+    const classRegex =
+      /(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
     let match;
     while ((match = classRegex.exec(content)) !== null) {
       const className = match[1];
@@ -175,7 +177,10 @@ function generateClassDiagram(files: string[], root: string): string {
       }
 
       // Extract methods from the class
-      const methodRegex = new RegExp(`(?:public|private|protected)?\\s*(?:static\\s+)?(?:async\\s+)?(\\w+)\\s*\\(`, 'g');
+      const methodRegex = new RegExp(
+        `(?:public|private|protected)?\\s*(?:static\\s+)?(?:async\\s+)?(\\w+)\\s*\\(`,
+        'g',
+      );
       const contentLines = content.split('\n');
       const startLine = content.slice(0, match.index).split('\n').length - 1;
       let braceCount = 0;
@@ -187,7 +192,9 @@ function generateClassDiagram(files: string[], root: string): string {
         if (opens > 0) started = true;
         braceCount += opens - closes;
 
-        const mMatch = line.match(/^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:async\s+)?(\w+)\s*\(/);
+        const mMatch = line.match(
+          /^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:async\s+)?(\w+)\s*\(/,
+        );
         if (mMatch && mMatch[1] !== 'constructor' && started) {
           lines.push(`  ${className} : +${mMatch[1]}()`);
         }
@@ -213,7 +220,8 @@ function generateCallGraphDiagram(files: string[], root: string): string {
     const relPath = path.relative(root, file).replace(/\\/g, '/');
 
     // Extract function definitions and their calls
-    const funcRegex = /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?/g;
+    const funcRegex =
+      /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?/g;
     let match;
     while ((match = funcRegex.exec(content)) !== null) {
       const funcName = match[1] ?? match[2];
@@ -229,7 +237,10 @@ function generateCallGraphDiagram(files: string[], root: string): string {
       let lineCount = 0;
       while ((callMatch = callRegex.exec(afterFunc)) !== null && lineCount < 50) {
         const calledFunc = callMatch[1];
-        if (['if', 'for', 'while', 'switch', 'catch', 'return', 'new', funcName].includes(calledFunc)) continue;
+        if (
+          ['if', 'for', 'while', 'switch', 'catch', 'return', 'new', funcName].includes(calledFunc)
+        )
+          continue;
         const targetId = sanitizeId(`call:${calledFunc}`);
         calls.add(`  ${nodeId} --> ${targetId}["${calledFunc}"]`);
         lineCount++;

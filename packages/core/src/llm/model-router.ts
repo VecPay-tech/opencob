@@ -1,4 +1,10 @@
-import type { LlmAdapter, ChatMessage, StreamChunk, CompletionRequest, CompletionResponse } from './types.js';
+import type {
+  LlmAdapter,
+  ChatMessage,
+  StreamChunk,
+  CompletionRequest,
+  CompletionResponse,
+} from './types.js';
 
 export type TaskType = 'chat' | 'completion' | 'planning' | 'embedding' | 'enhancement';
 

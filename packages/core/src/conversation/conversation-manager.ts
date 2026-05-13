@@ -94,7 +94,7 @@ export class ConversationManager {
   /** Clear the active conversation */
   clear(): Conversation {
     const modeSlug = this.activeId
-      ? this.conversations.get(this.activeId)?.modeSlug ?? 'code'
+      ? (this.conversations.get(this.activeId)?.modeSlug ?? 'code')
       : 'code';
     return this.create(modeSlug);
   }
@@ -193,7 +193,8 @@ export class ConversationManager {
     const conv = id ? this.conversations.get(id) : this.getActive();
     if (!conv) throw new Error(`Conversation not found: ${id ?? 'active'}`);
 
-    const header = `# ${conv.title}\n\n` +
+    const header =
+      `# ${conv.title}\n\n` +
       `**Mode:** ${conv.modeSlug} | **Created:** ${new Date(conv.createdAt).toISOString()} | **Messages:** ${conv.messages.length}\n\n---\n\n`;
 
     const body = conv.messages

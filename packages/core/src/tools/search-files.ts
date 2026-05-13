@@ -11,9 +11,24 @@ export function createSearchFilesTool(workspaceRoot: string): Tool {
       'Returns matching lines with file paths, line numbers, and content. ' +
       'Optionally restrict search to a subdirectory with the path parameter.',
     parameters: [
-      { name: 'pattern', type: 'string', description: 'Regex pattern to search for', required: true },
-      { name: 'path', type: 'string', description: 'Subdirectory to search in (default: entire workspace)', required: false },
-      { name: 'caseSensitive', type: 'boolean', description: 'Case-sensitive search (default: false)', required: false },
+      {
+        name: 'pattern',
+        type: 'string',
+        description: 'Regex pattern to search for',
+        required: true,
+      },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Subdirectory to search in (default: entire workspace)',
+        required: false,
+      },
+      {
+        name: 'caseSensitive',
+        type: 'boolean',
+        description: 'Case-sensitive search (default: false)',
+        required: false,
+      },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const pattern = params.pattern as string;
@@ -60,7 +75,24 @@ export function createSearchFilesTool(workspaceRoot: string): Tool {
 }
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.OpenCob']);
-const BINARY_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot', '.zip', '.tar', '.gz', '.exe', '.dll', '.so', '.dylib']);
+const BINARY_EXTS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.eot',
+  '.zip',
+  '.tar',
+  '.gz',
+  '.exe',
+  '.dll',
+  '.so',
+  '.dylib',
+]);
 
 async function searchDir(
   absPath: string,

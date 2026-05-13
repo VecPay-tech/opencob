@@ -12,14 +12,16 @@ describe('RedactionEngine', () => {
   });
 
   it('redacts JWT tokens', () => {
-    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    const jwt =
+      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
     const result = engine.redact(`token: ${jwt}`);
     expect(result.redacted).toContain('[REDACTED_JWT]');
     expect(result.redacted).not.toContain('eyJhbGci');
   });
 
   it('redacts private keys', () => {
-    const key = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----';
+    const key =
+      '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----';
     const result = engine.redact(key);
     expect(result.redacted).toBe('[REDACTED_PRIVATE_KEY]');
   });

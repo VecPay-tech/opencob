@@ -137,7 +137,10 @@ export class ConfigLoader {
         parsed = this.parseSimpleYaml(content);
       }
       if (parsed && typeof parsed === 'object') {
-        this.deepMerge(this.config as unknown as Record<string, unknown>, parsed as Record<string, unknown>);
+        this.deepMerge(
+          this.config as unknown as Record<string, unknown>,
+          parsed as Record<string, unknown>,
+        );
       }
     } catch {
       // File not found or invalid — skip silently
@@ -156,7 +159,11 @@ export class ConfigLoader {
         } else {
           parsed = this.parseSimpleYaml(content);
         }
-        if (parsed && typeof parsed === 'object' && 'customModes' in (parsed as Record<string, unknown>)) {
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          'customModes' in (parsed as Record<string, unknown>)
+        ) {
           const modes = (parsed as Record<string, unknown>).customModes;
           if (Array.isArray(modes)) {
             for (const mode of modes) {
@@ -186,10 +193,7 @@ export class ConfigLoader {
           const rulesDir = path.join(dir, entry.name);
           const rules = await this.readRuleFiles(rulesDir);
           if (rules.length > 0) {
-            this.config.modeRules[slug] = [
-              ...(this.config.modeRules[slug] ?? []),
-              ...rules,
-            ];
+            this.config.modeRules[slug] = [...(this.config.modeRules[slug] ?? []), ...rules];
           }
         }
       }
@@ -204,10 +208,7 @@ export class ConfigLoader {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith('.md')) {
-          const content = await fs.readFile(
-            path.join(dir, entry.name),
-            'utf-8',
-          );
+          const content = await fs.readFile(path.join(dir, entry.name), 'utf-8');
           rules.push(content.trim());
         }
       }
@@ -230,10 +231,7 @@ export class ConfigLoader {
         !Array.isArray(targetVal) &&
         !Array.isArray(sourceVal)
       ) {
-        this.deepMerge(
-          targetVal as Record<string, unknown>,
-          sourceVal as Record<string, unknown>,
-        );
+        this.deepMerge(targetVal as Record<string, unknown>, sourceVal as Record<string, unknown>);
       } else {
         target[key] = sourceVal;
       }
@@ -246,10 +244,7 @@ export class ConfigLoader {
     const rules = await this.readRuleFiles(rulesDir);
     if (rules.length > 0) {
       // Store under '_general' key
-      this.config.modeRules['_general'] = [
-        ...(this.config.modeRules['_general'] ?? []),
-        ...rules,
-      ];
+      this.config.modeRules['_general'] = [...(this.config.modeRules['_general'] ?? []), ...rules];
     }
   }
 
@@ -350,8 +345,10 @@ export class ConfigLoader {
 
   private parseYamlValue(value: string): unknown {
     // Remove quotes
-    if ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       return value.slice(1, -1);
     }
     // Booleans

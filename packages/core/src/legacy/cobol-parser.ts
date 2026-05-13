@@ -177,13 +177,9 @@ export class CobolParser {
       const performMatch = textUpper.match(/PERFORM\s+(\S+)/);
       if (performMatch && inProcedureDivision) {
         const target = performMatch[1];
-        const targetParagraph = program.paragraphs.find(
-          (p) => p.name.toUpperCase() === target,
-        );
+        const targetParagraph = program.paragraphs.find((p) => p.name.toUpperCase() === target);
         if (targetParagraph) {
-          targetParagraph.performedBy.push(
-            currentParagraph?.name ?? 'unknown',
-          );
+          targetParagraph.performedBy.push(currentParagraph?.name ?? 'unknown');
         }
       }
 
@@ -275,11 +271,7 @@ export class CobolParser {
   }
 
   /** Generate a human-readable explanation of a paragraph */
-  explainParagraph(
-    program: CobolProgram,
-    paragraphName: string,
-    sourceContent: string,
-  ): string {
+  explainParagraph(program: CobolProgram, paragraphName: string, sourceContent: string): string {
     const para = program.paragraphs.find(
       (p) => p.name.toUpperCase() === paragraphName.toUpperCase(),
     );
@@ -292,9 +284,10 @@ export class CobolParser {
     const code = paraLines.join('\n');
 
     // Build explanation context
-    const callers = para.performedBy.length > 0
-      ? `Called by: ${para.performedBy.join(', ')}`
-      : 'Not called by any other paragraph (entry point or dead code)';
+    const callers =
+      para.performedBy.length > 0
+        ? `Called by: ${para.performedBy.join(', ')}`
+        : 'Not called by any other paragraph (entry point or dead code)';
 
     return [
       `## Paragraph: ${para.name}`,
@@ -311,13 +304,7 @@ export class CobolParser {
 
   /** Resolve a copybook name to a file path */
   private resolveCopybook(name: string): string | undefined {
-    const variants = [
-      `${name}.cpy`,
-      `${name}.CPY`,
-      `${name}.cob`,
-      `${name}.COB`,
-      name,
-    ];
+    const variants = [`${name}.cpy`, `${name}.CPY`, `${name}.cob`, `${name}.COB`, name];
 
     for (const searchPath of this.copybookPaths) {
       for (const variant of variants) {

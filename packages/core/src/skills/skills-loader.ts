@@ -107,7 +107,10 @@ export class SkillsLoader {
     }
   }
 
-  private parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
+  private parseFrontmatter(content: string): {
+    frontmatter: Record<string, unknown>;
+    body: string;
+  } {
     const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!fmMatch) {
       return { frontmatter: {}, body: content };
@@ -139,10 +142,7 @@ export class SkillsLoader {
 
   private matchGlob(filePath: string, pattern: string): boolean {
     // Simple glob matching — handles *.ext and **/*.ext patterns
-    const regexStr = pattern
-      .replace(/\./g, '\\.')
-      .replace(/\*\*/g, '.*')
-      .replace(/\*/g, '[^/]*');
+    const regexStr = pattern.replace(/\./g, '\\.').replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*');
     try {
       return new RegExp(`^${regexStr}$`).test(filePath);
     } catch {

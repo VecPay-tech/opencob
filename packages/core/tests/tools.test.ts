@@ -15,7 +15,10 @@ beforeEach(async () => {
   await mkdir(workspaceRoot, { recursive: true });
   await mkdir(join(workspaceRoot, 'src'), { recursive: true });
   await writeFile(join(workspaceRoot, 'hello.txt'), 'line 1\nline 2\nline 3\nline 4\nline 5\n');
-  await writeFile(join(workspaceRoot, 'src', 'main.ts'), 'const x = 1;\nconst y = 2;\nexport { x, y };\n');
+  await writeFile(
+    join(workspaceRoot, 'src', 'main.ts'),
+    'const x = 1;\nconst y = 2;\nexport { x, y };\n',
+  );
 });
 
 afterEach(async () => {

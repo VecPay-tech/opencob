@@ -55,7 +55,14 @@ export class ConversationCompactor {
   private async summarize(messages: ChatMessage[]): Promise<string> {
     const conversationText = messages
       .map((m) => {
-        const role = m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : m.role === 'tool' ? `Tool(${m.name ?? 'unknown'})` : 'System';
+        const role =
+          m.role === 'user'
+            ? 'User'
+            : m.role === 'assistant'
+              ? 'Assistant'
+              : m.role === 'tool'
+                ? `Tool(${m.name ?? 'unknown'})`
+                : 'System';
         return `${role}: ${m.content.slice(0, 500)}${m.content.length > 500 ? '...' : ''}`;
       })
       .join('\n\n');
@@ -63,7 +70,8 @@ export class ConversationCompactor {
     const summaryPrompt: ChatMessage[] = [
       {
         role: 'system',
-        content: 'You are a concise summarizer. Summarize the following conversation, preserving key facts, decisions, file paths mentioned, code changes made, and any important context. Be brief but complete.',
+        content:
+          'You are a concise summarizer. Summarize the following conversation, preserving key facts, decisions, file paths mentioned, code changes made, and any important context. Be brief but complete.',
       },
       {
         role: 'user',

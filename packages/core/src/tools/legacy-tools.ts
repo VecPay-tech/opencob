@@ -28,7 +28,8 @@ export function createFindReferencesTool(workspaceRoot: string): Tool {
       {
         name: 'direction',
         type: 'string',
-        description: 'Search direction: "callers" (who calls this), "callees" (what this calls), or "both" (default: both)',
+        description:
+          'Search direction: "callers" (who calls this), "callees" (what this calls), or "both" (default: both)',
         required: false,
       },
     ],
@@ -262,7 +263,16 @@ export function createShowImpactChainTool(workspaceRoot: string): Tool {
 // ── Helpers ──────────────────────────────────────────────────────
 
 function collectLegacyFiles(dir: string, rootDir: string): string[] {
-  const LEGACY_EXTS = new Set(['.cob', '.cbl', '.cpy', '.rpgle', '.rpg', '.sqlrpgle', '.pli', '.jcl']);
+  const LEGACY_EXTS = new Set([
+    '.cob',
+    '.cbl',
+    '.cpy',
+    '.rpgle',
+    '.rpg',
+    '.sqlrpgle',
+    '.pli',
+    '.jcl',
+  ]);
   const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'out']);
   const files: string[] = [];
 

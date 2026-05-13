@@ -43,41 +43,93 @@ export class FindingsScanner {
 
       // Security: Hardcoded secrets
       if (/(?:password|secret|token|api_key)\s*[:=]\s*['"][^'"]{4,}['"]/i.test(trimmed)) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'error', 'security', 'Possible hardcoded secret'));
+        fileFindings.push(
+          this.createFinding(filePath, lineNum, 'error', 'security', 'Possible hardcoded secret'),
+        );
       }
 
       // Security: SQL injection patterns
-      if (/(?:query|execute|sql)\s*\(\s*[`'"]\s*(?:SELECT|INSERT|UPDATE|DELETE).*\$\{/i.test(trimmed)) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'error', 'security', 'Potential SQL injection — use parameterized queries'));
+      if (
+        /(?:query|execute|sql)\s*\(\s*[`'"]\s*(?:SELECT|INSERT|UPDATE|DELETE).*\$\{/i.test(trimmed)
+      ) {
+        fileFindings.push(
+          this.createFinding(
+            filePath,
+            lineNum,
+            'error',
+            'security',
+            'Potential SQL injection — use parameterized queries',
+          ),
+        );
       }
 
       // Complexity: deeply nested code (5+ levels of indentation)
       const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length ?? 0;
       const indentLevel = Math.floor(leadingSpaces / 2);
       if (indentLevel >= 6 && trimmed.length > 0) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'warning', 'complexity', `Deeply nested code (${indentLevel} levels) — consider extracting`));
+        fileFindings.push(
+          this.createFinding(
+            filePath,
+            lineNum,
+            'warning',
+            'complexity',
+            `Deeply nested code (${indentLevel} levels) — consider extracting`,
+          ),
+        );
       }
 
       // Style: lines > 120 chars
       if (line.length > 150) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'info', 'style', `Line length ${line.length} exceeds 150 characters`));
+        fileFindings.push(
+          this.createFinding(
+            filePath,
+            lineNum,
+            'info',
+            'style',
+            `Line length ${line.length} exceeds 150 characters`,
+          ),
+        );
       }
 
       // Maintenance: TODO/FIXME/HACK markers
       const todoMatch = trimmed.match(/\b(TODO|FIXME|HACK|XXX)\b:?\s*(.*)/i);
       if (todoMatch) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'info', 'maintenance', `${todoMatch[1]}: ${todoMatch[2] || '(no description)'}`));
+        fileFindings.push(
+          this.createFinding(
+            filePath,
+            lineNum,
+            'info',
+            'maintenance',
+            `${todoMatch[1]}: ${todoMatch[2] || '(no description)'}`,
+          ),
+        );
       }
 
       // Dead code: commented-out code blocks
       if (/^\/\/\s*(const|let|var|function|class|import|export|if|for|while)\b/.test(trimmed)) {
-        fileFindings.push(this.createFinding(filePath, lineNum, 'info', 'dead-code', 'Commented-out code — consider removing'));
+        fileFindings.push(
+          this.createFinding(
+            filePath,
+            lineNum,
+            'info',
+            'dead-code',
+            'Commented-out code — consider removing',
+          ),
+        );
       }
     }
 
     // File-level checks
     if (lines.length > 500) {
-      fileFindings.push(this.createFinding(filePath, undefined, 'warning', 'complexity', `Large file (${lines.length} lines) — consider splitting`));
+      fileFindings.push(
+        this.createFinding(
+          filePath,
+          undefined,
+          'warning',
+          'complexity',
+          `Large file (${lines.length} lines) — consider splitting`,
+        ),
+      );
     }
 
     this.findings.set(filePath, fileFindings);

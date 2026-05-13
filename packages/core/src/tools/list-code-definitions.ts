@@ -65,9 +65,7 @@ export function createListCodeDefinitionsTool(workspaceRoot: string): Tool {
         };
       }
 
-      const output = definitions
-        .map((d) => `L${d.line}: ${d.type} ${d.name}`)
-        .join('\n');
+      const output = definitions.map((d) => `L${d.line}: ${d.type} ${d.name}`).join('\n');
 
       return {
         success: true,
@@ -90,8 +88,14 @@ function getPatterns(ext: string): DefinitionPattern[] {
     { type: 'type', regex: /^\s*(?:export\s+)?type\s+(\w+)\s*[=<]/ },
     { type: 'enum', regex: /^\s*(?:export\s+)?(?:const\s+)?enum\s+(\w+)/ },
     { type: 'function', regex: /^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/ },
-    { type: 'const-fn', regex: /^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_]\w*)\s*=>/ },
-    { type: 'method', regex: /^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:async\s+)?(\w+)\s*\(/ },
+    {
+      type: 'const-fn',
+      regex: /^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_]\w*)\s*=>/,
+    },
+    {
+      type: 'method',
+      regex: /^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:async\s+)?(\w+)\s*\(/,
+    },
   ];
 
   const pythonPatterns: DefinitionPattern[] = [
@@ -101,10 +105,18 @@ function getPatterns(ext: string): DefinitionPattern[] {
   ];
 
   const javaPatterns: DefinitionPattern[] = [
-    { type: 'class', regex: /^\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+)?(?:static\s+)?class\s+(\w+)/ },
+    {
+      type: 'class',
+      regex:
+        /^\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+)?(?:static\s+)?class\s+(\w+)/,
+    },
     { type: 'interface', regex: /^\s*(?:public\s+)?interface\s+(\w+)/ },
     { type: 'enum', regex: /^\s*(?:public\s+)?enum\s+(\w+)/ },
-    { type: 'method', regex: /^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:abstract\s+)?\w+\s+(\w+)\s*\(/ },
+    {
+      type: 'method',
+      regex:
+        /^\s+(?:public\s+|private\s+|protected\s+)?(?:static\s+)?(?:abstract\s+)?\w+\s+(\w+)\s*\(/,
+    },
   ];
 
   const goPatterns: DefinitionPattern[] = [
@@ -115,7 +127,7 @@ function getPatterns(ext: string): DefinitionPattern[] {
 
   const cobolPatterns: DefinitionPattern[] = [
     { type: 'program', regex: /^\s+PROGRAM-ID\.\s+(\S+)/i },
-    { type: 'paragraph', regex: /^       (\w[\w-]+)\.\s*$/  },
+    { type: 'paragraph', regex: /^       (\w[\w-]+)\.\s*$/ },
     { type: 'section', regex: /^       (\w[\w-]+)\s+SECTION\.\s*$/i },
     { type: 'copy', regex: /^\s+COPY\s+(\S+)/i },
   ];

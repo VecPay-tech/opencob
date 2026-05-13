@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { ConversationCompactor } from '../src/agent/conversation-compactor.js';
 import { PromptEnhancer } from '../src/agent/prompt-enhancer.js';
-import type { LlmAdapter, ChatMessage, StreamChunk, CompletionRequest, CompletionResponse } from '../src/llm/types.js';
+import type {
+  LlmAdapter,
+  ChatMessage,
+  StreamChunk,
+  CompletionRequest,
+  CompletionResponse,
+} from '../src/llm/types.js';
 
 // Mock LLM that returns predictable responses
 class MockLlm implements LlmAdapter {
@@ -76,9 +82,7 @@ describe('ConversationCompactor', () => {
     const compactor = new ConversationCompactor(new MockLlm(), {
       keepRecentMessages: 10,
     });
-    const messages: ChatMessage[] = [
-      { role: 'user', content: 'Hello' },
-    ];
+    const messages: ChatMessage[] = [{ role: 'user', content: 'Hello' }];
 
     const compacted = await compactor.compact(messages);
     expect(compacted).toHaveLength(1);
@@ -93,7 +97,8 @@ describe('PromptEnhancer', () => {
   });
 
   it('enhances longer prompts via LLM', async () => {
-    const enhanced = 'Please refactor the authentication module to use JWT tokens instead of session cookies.';
+    const enhanced =
+      'Please refactor the authentication module to use JWT tokens instead of session cookies.';
     const enhancer = new PromptEnhancer(new MockLlm(enhanced));
     const result = await enhancer.enhance('refactor the auth module to use jwt tokens');
     expect(result).toBe(enhanced);

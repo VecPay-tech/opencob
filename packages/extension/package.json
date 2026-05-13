@@ -8,8 +8,14 @@
   "engines": {
     "vscode": "^1.100.0"
   },
-  "categories": ["AI", "Programming Languages", "Chat"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Chat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -92,7 +98,10 @@
         "OpenCob.model.provider": {
           "type": "string",
           "default": "ollama",
-          "enum": ["ollama", "openai-compatible"],
+          "enum": [
+            "ollama",
+            "openai-compatible"
+          ],
           "description": "LLM provider for inference"
         },
         "OpenCob.model.chat": {

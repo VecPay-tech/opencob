@@ -78,11 +78,11 @@ opencob/
 
 ## Packages
 
-| Package | Description | Build |
-|---|---|---|
-| [`@opencob/core`](packages/core) | Agent loop, tool system, mode engine, MCP client, LLM adapters, RAG indexer | tsc |
-| [`@opencob/cli`](packages/cli) | Terminal REPL with interactive and headless modes | esbuild |
-| [`@opencob/extension`](packages/extension) | VS Code extension: chat panel, inline completion, mode selector | esbuild |
+| Package                                    | Description                                                                 | Build   |
+| ------------------------------------------ | --------------------------------------------------------------------------- | ------- |
+| [`@opencob/core`](packages/core)           | Agent loop, tool system, mode engine, MCP client, LLM adapters, RAG indexer | tsc     |
+| [`@opencob/cli`](packages/cli)             | Terminal REPL with interactive and headless modes                           | esbuild |
+| [`@opencob/extension`](packages/extension) | VS Code extension: chat panel, inline completion, mode selector             | esbuild |
 
 ## Contributing
 
@@ -98,4 +98,4 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ---
 
-> **OpenCob** — *Free, private, and open. AI-assisted coding that never phones home.*
+> **OpenCob** — _Free, private, and open. AI-assisted coding that never phones home._

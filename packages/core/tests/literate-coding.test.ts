@@ -118,11 +118,7 @@ describe('LiterateCodingEngine', () => {
 
   describe('applyResult', () => {
     it('replaces literate block with generated code', () => {
-      const content = [
-        'const a = 1;',
-        '// @OpenCob: add b variable',
-        'const c = 3;',
-      ].join('\n');
+      const content = ['const a = 1;', '// @OpenCob: add b variable', 'const c = 3;'].join('\n');
 
       const result = engine.applyResult(content, {
         originalBlock: {

@@ -48,7 +48,10 @@ export class MCPClient {
   private processes: Map<string, ChildProcess> = new Map();
   private tools: Map<string, MCPTool> = new Map();
   private requestId: number = 0;
-  private pendingRequests: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }> = new Map();
+  private pendingRequests: Map<
+    number,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  > = new Map();
   private buffers: Map<string, string> = new Map();
   // SSE transport state
   private sseEndpoints: Map<string, string> = new Map(); // serverId → POST endpoint URL
@@ -160,7 +163,9 @@ export class MCPClient {
     });
 
     if (!response.ok) {
-      throw new Error(`SSE connection to "${config.id}" failed: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `SSE connection to "${config.id}" failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     if (!response.body) {
@@ -302,7 +307,7 @@ export class MCPClient {
 
   /** Discover tools from a connected MCP server */
   async discoverTools(serverId: string): Promise<MCPTool[]> {
-    const response = await this.sendRequest(serverId, 'tools/list', {}) as {
+    const response = (await this.sendRequest(serverId, 'tools/list', {})) as {
       tools?: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
     };
 
@@ -323,11 +328,15 @@ export class MCPClient {
   }
 
   /** Call a tool on an MCP server */
-  async callTool(serverId: string, toolName: string, args: Record<string, unknown>): Promise<MCPToolResult> {
-    const response = await this.sendRequest(serverId, 'tools/call', {
+  async callTool(
+    serverId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<MCPToolResult> {
+    const response = (await this.sendRequest(serverId, 'tools/call', {
       name: toolName,
       arguments: args,
-    }) as MCPToolResult;
+    })) as MCPToolResult;
 
     return response ?? { content: [{ type: 'text', text: 'No result' }] };
   }
@@ -388,7 +397,11 @@ export class MCPClient {
 
   // --- Internal methods ---
 
-  private async sendRequest(serverId: string, method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendRequest(
+    serverId: string,
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const id = ++this.requestId;
     const request: JsonRpcRequest = {
       jsonrpc: '2.0',
@@ -452,12 +465,17 @@ export class MCPClient {
     });
   }
 
-  private sendNotification(serverId: string, method: string, params: Record<string, unknown>): void {
-    const notification = JSON.stringify({
-      jsonrpc: '2.0',
-      method,
-      params,
-    }) + '\n';
+  private sendNotification(
+    serverId: string,
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
+    const notification =
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method,
+        params,
+      }) + '\n';
 
     // SSE transport — POST notification
     const sseEndpoint = this.sseEndpoints.get(serverId);

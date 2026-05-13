@@ -11,26 +11,42 @@ export interface ComplexityScore {
 }
 
 const COMPLEX_KEYWORDS = [
-  'refactor', 'redesign', 'migrate', 'modernize', 'architect',
-  'across files', 'multiple files', 'entire', 'whole project',
-  'build system', 'deploy', 'infrastructure', 'database schema',
-  'performance', 'optimize', 'security audit', 'review all',
+  'refactor',
+  'redesign',
+  'migrate',
+  'modernize',
+  'architect',
+  'across files',
+  'multiple files',
+  'entire',
+  'whole project',
+  'build system',
+  'deploy',
+  'infrastructure',
+  'database schema',
+  'performance',
+  'optimize',
+  'security audit',
+  'review all',
 ];
 
 const SIMPLE_KEYWORDS = [
-  'explain', 'what is', 'how to', 'fix this', 'typo',
-  'rename', 'add comment', 'format', 'lint',
+  'explain',
+  'what is',
+  'how to',
+  'fix this',
+  'typo',
+  'rename',
+  'add comment',
+  'format',
+  'lint',
 ];
 
 export class TaskComplexityClassifier {
   /**
    * Score the complexity of a user request.
    */
-  classify(
-    message: string,
-    contextFileCount: number = 0,
-    turnDepth: number = 0,
-  ): ComplexityScore {
+  classify(message: string, contextFileCount: number = 0, turnDepth: number = 0): ComplexityScore {
     let score = 30; // baseline
     const reasons: string[] = [];
 

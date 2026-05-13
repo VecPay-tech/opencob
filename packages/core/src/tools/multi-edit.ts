@@ -37,7 +37,7 @@ export function createMultiEditTool(
       let edits: EditOperation[];
       try {
         const raw = params.edits as string;
-        edits = typeof raw === 'string' ? JSON.parse(raw) : raw as unknown as EditOperation[];
+        edits = typeof raw === 'string' ? JSON.parse(raw) : (raw as unknown as EditOperation[]);
       } catch {
         return { success: false, content: 'Invalid edits parameter: must be valid JSON array.' };
       }
@@ -97,9 +97,17 @@ export function createMultiEditTool(
           const fullPath = path.resolve(workspaceRoot, filePath);
           if (original === null) {
             // File didn't exist before — delete it
-            try { fs.unlinkSync(fullPath); } catch { /* ignore */ }
+            try {
+              fs.unlinkSync(fullPath);
+            } catch {
+              /* ignore */
+            }
           } else if (original !== undefined) {
-            try { fs.writeFileSync(fullPath, original, 'utf-8'); } catch { /* ignore */ }
+            try {
+              fs.writeFileSync(fullPath, original, 'utf-8');
+            } catch {
+              /* ignore */
+            }
           }
         }
         return {

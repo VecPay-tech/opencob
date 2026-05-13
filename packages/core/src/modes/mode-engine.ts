@@ -11,9 +11,7 @@ export interface Mode {
   customInstructions?: string;
 }
 
-export type ToolGroupConfig =
-  | ToolGroup
-  | [ToolGroup, { fileRegex?: string; description?: string }];
+export type ToolGroupConfig = ToolGroup | [ToolGroup, { fileRegex?: string; description?: string }];
 
 export const BUILT_IN_MODES: Mode[] = [
   {
@@ -53,8 +51,7 @@ export const BUILT_IN_MODES: Mode[] = [
     name: '🔀 Orchestrator',
     roleDefinition:
       'You are OpenCob, a strategic workflow orchestrator who coordinates complex tasks by delegating them to appropriate specialized modes.',
-    whenToUse:
-      'Use for complex projects requiring coordination across different specialties.',
+    whenToUse: 'Use for complex projects requiring coordination across different specialties.',
     groups: [],
   },
 ];

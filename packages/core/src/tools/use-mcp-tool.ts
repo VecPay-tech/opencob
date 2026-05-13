@@ -39,7 +39,10 @@ export function createUseMcpTool(mcpClient: MCPClient): Tool {
       if (!toolName) return { success: false, content: 'Error: tool_name is required' };
 
       if (!mcpClient.isConnected(serverId)) {
-        const servers = mcpClient.listServers().map((s) => s.id).join(', ');
+        const servers = mcpClient
+          .listServers()
+          .map((s) => s.id)
+          .join(', ');
         return {
           success: false,
           content: `Error: MCP server "${serverId}" is not connected. Connected servers: ${servers || 'none'}`,
@@ -58,9 +61,7 @@ export function createUseMcpTool(mcpClient: MCPClient): Tool {
       try {
         const result = await mcpClient.callTool(serverId, toolName, args);
 
-        const text = result.content
-          .map((c) => c.text ?? JSON.stringify(c))
-          .join('\n');
+        const text = result.content.map((c) => c.text ?? JSON.stringify(c)).join('\n');
 
         return {
           success: !result.isError,

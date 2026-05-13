@@ -5,7 +5,18 @@ import { FileFilter } from '../security/file-filter.js';
 /** A code definition extracted from a source file */
 export interface CodeDefinition {
   name: string;
-  kind: 'class' | 'function' | 'method' | 'interface' | 'type' | 'variable' | 'procedure' | 'paragraph' | 'section' | 'subroutine' | 'data-structure';
+  kind:
+    | 'class'
+    | 'function'
+    | 'method'
+    | 'interface'
+    | 'type'
+    | 'variable'
+    | 'procedure'
+    | 'paragraph'
+    | 'section'
+    | 'subroutine'
+    | 'data-structure';
   filePath: string;
   line: number;
   endLine?: number;
@@ -100,11 +111,13 @@ const LANGUAGE_PATTERNS: LanguagePattern[] = [
     definitionPatterns: [
       { kind: 'class', regex: /^(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/m, nameGroup: 1 },
       { kind: 'interface', regex: /^(?:public\s+)?interface\s+(\w+)/m, nameGroup: 1 },
-      { kind: 'method', regex: /^\s+(?:public|private|protected)\s+.*?\s+(\w+)\s*\(/m, nameGroup: 1 },
+      {
+        kind: 'method',
+        regex: /^\s+(?:public|private|protected)\s+.*?\s+(\w+)\s*\(/m,
+        nameGroup: 1,
+      },
     ],
-    dependencyPatterns: [
-      { type: 'import', regex: /^import\s+([\w.]+)/gm, targetGroup: 1 },
-    ],
+    dependencyPatterns: [{ type: 'import', regex: /^import\s+([\w.]+)/gm, targetGroup: 1 }],
   },
   {
     extensions: ['.go'],
@@ -114,9 +127,7 @@ const LANGUAGE_PATTERNS: LanguagePattern[] = [
       { kind: 'type', regex: /^type\s+(\w+)\s+struct/m, nameGroup: 1 },
       { kind: 'interface', regex: /^type\s+(\w+)\s+interface/m, nameGroup: 1 },
     ],
-    dependencyPatterns: [
-      { type: 'import', regex: /import\s+"(.+?)"/g, targetGroup: 1 },
-    ],
+    dependencyPatterns: [{ type: 'import', regex: /import\s+"(.+?)"/g, targetGroup: 1 }],
   },
   {
     extensions: ['.rs'],
@@ -126,20 +137,24 @@ const LANGUAGE_PATTERNS: LanguagePattern[] = [
       { kind: 'type', regex: /^(?:pub\s+)?struct\s+(\w+)/m, nameGroup: 1 },
       { kind: 'interface', regex: /^(?:pub\s+)?trait\s+(\w+)/m, nameGroup: 1 },
     ],
-    dependencyPatterns: [
-      { type: 'import', regex: /^use\s+([\w:]+)/gm, targetGroup: 1 },
-    ],
+    dependencyPatterns: [{ type: 'import', regex: /^use\s+([\w:]+)/gm, targetGroup: 1 }],
   },
   {
     extensions: ['.cs'],
     language: 'csharp',
     definitionPatterns: [
-      { kind: 'class', regex: /^(?:\s*(?:public|internal|private)\s+)?(?:abstract\s+)?class\s+(\w+)/m, nameGroup: 1 },
-      { kind: 'interface', regex: /^(?:\s*(?:public|internal)\s+)?interface\s+(\w+)/m, nameGroup: 1 },
+      {
+        kind: 'class',
+        regex: /^(?:\s*(?:public|internal|private)\s+)?(?:abstract\s+)?class\s+(\w+)/m,
+        nameGroup: 1,
+      },
+      {
+        kind: 'interface',
+        regex: /^(?:\s*(?:public|internal)\s+)?interface\s+(\w+)/m,
+        nameGroup: 1,
+      },
     ],
-    dependencyPatterns: [
-      { type: 'import', regex: /^using\s+([\w.]+)/gm, targetGroup: 1 },
-    ],
+    dependencyPatterns: [{ type: 'import', regex: /^using\s+([\w.]+)/gm, targetGroup: 1 }],
   },
 ];
 
@@ -203,9 +218,7 @@ export class WorkspaceIndexer {
     // Remove old data for this file
     this.definitions.delete(relPath);
     this.chunks.delete(relPath);
-    this.dependencies = this.dependencies.filter(
-      (d) => d.sourceFile !== relPath,
-    );
+    this.dependencies = this.dependencies.filter((d) => d.sourceFile !== relPath);
 
     // Re-index
     const fullPath = path.resolve(this.workspaceRoot, relPath);
@@ -233,9 +246,7 @@ export class WorkspaceIndexer {
   /** Search definitions by name */
   searchDefinitions(query: string): CodeDefinition[] {
     const lower = query.toLowerCase();
-    return this.getAllDefinitions().filter(
-      (d) => d.name.toLowerCase().includes(lower),
-    );
+    return this.getAllDefinitions().filter((d) => d.name.toLowerCase().includes(lower));
   }
 
   /** Get dependencies for a file */
@@ -358,11 +369,7 @@ export class WorkspaceIndexer {
   }
 
   /** Split file into chunks for embedding (by definitions or fixed-size) */
-  private createChunks(
-    content: string,
-    filePath: string,
-    language: string,
-  ): CodeChunk[] {
+  private createChunks(content: string, filePath: string, language: string): CodeChunk[] {
     const lines = content.split('\n');
     const chunks: CodeChunk[] = [];
     const CHUNK_SIZE = 50; // lines per chunk
@@ -428,20 +435,75 @@ export class WorkspaceIndexer {
 }
 
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', '.OpenCob', 'dist', 'build', 'out',
-  '.next', '.nuxt', '__pycache__', '.venv', 'venv', 'target',
-  'bin', 'obj', '.idea', '.vscode', '.shadow-git',
+  'node_modules',
+  '.git',
+  '.OpenCob',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  '.nuxt',
+  '__pycache__',
+  '.venv',
+  'venv',
+  'target',
+  'bin',
+  'obj',
+  '.idea',
+  '.vscode',
+  '.shadow-git',
 ]);
 
 const INDEXABLE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.py', '.java', '.kt', '.go', '.rs', '.cs',
-  '.c', '.cpp', '.h', '.hpp', '.rb', '.php',
-  '.swift', '.scala', '.lua', '.r', '.R',
-  '.sql', '.sh', '.bash', '.zsh', '.ps1',
-  '.yaml', '.yml', '.json', '.toml', '.xml',
-  '.md', '.mdx', '.txt', '.cfg', '.ini',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.py',
+  '.java',
+  '.kt',
+  '.go',
+  '.rs',
+  '.cs',
+  '.c',
+  '.cpp',
+  '.h',
+  '.hpp',
+  '.rb',
+  '.php',
+  '.swift',
+  '.scala',
+  '.lua',
+  '.r',
+  '.R',
+  '.sql',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.ps1',
+  '.yaml',
+  '.yml',
+  '.json',
+  '.toml',
+  '.xml',
+  '.md',
+  '.mdx',
+  '.txt',
+  '.cfg',
+  '.ini',
   // Legacy languages
-  '.cob', '.cbl', '.cpy', '.rpgle', '.rpg', '.sqlrpgle',
-  '.pli', '.pl1', '.jcl', '.proc', '.nat', '.rexx',
+  '.cob',
+  '.cbl',
+  '.cpy',
+  '.rpgle',
+  '.rpg',
+  '.sqlrpgle',
+  '.pli',
+  '.pl1',
+  '.jcl',
+  '.proc',
+  '.nat',
+  '.rexx',
 ]);

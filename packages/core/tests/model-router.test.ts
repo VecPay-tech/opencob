@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { ModelRouter } from '../src/llm/model-router.js';
-import type { LlmAdapter, ChatMessage, StreamChunk, CompletionRequest, CompletionResponse } from '../src/llm/types.js';
+import type {
+  LlmAdapter,
+  ChatMessage,
+  StreamChunk,
+  CompletionRequest,
+  CompletionResponse,
+} from '../src/llm/types.js';
 
 /** Minimal mock adapter for testing */
 function createMockAdapter(name: string): LlmAdapter {

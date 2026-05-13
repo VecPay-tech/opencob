@@ -10,9 +10,24 @@ export function createReadFileTool(workspaceRoot: string): Tool {
       'Read the contents of a file. Returns the file content with line numbers. ' +
       'Optionally specify startLine and endLine to read a range.',
     parameters: [
-      { name: 'path', type: 'string', description: 'Relative path to the file from workspace root', required: true },
-      { name: 'startLine', type: 'number', description: 'Start line (1-based, inclusive)', required: false },
-      { name: 'endLine', type: 'number', description: 'End line (1-based, inclusive)', required: false },
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Relative path to the file from workspace root',
+        required: true,
+      },
+      {
+        name: 'startLine',
+        type: 'number',
+        description: 'Start line (1-based, inclusive)',
+        required: false,
+      },
+      {
+        name: 'endLine',
+        type: 'number',
+        description: 'End line (1-based, inclusive)',
+        required: false,
+      },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const filePath = params.path as string;
@@ -24,7 +39,10 @@ export function createReadFileTool(workspaceRoot: string): Tool {
       const relPath = relative(workspaceRoot, absPath);
 
       // Prevent path traversal outside workspace
-      if (relPath.startsWith('..') || resolve(absPath) !== absPath && !absPath.startsWith(workspaceRoot)) {
+      if (
+        relPath.startsWith('..') ||
+        (resolve(absPath) !== absPath && !absPath.startsWith(workspaceRoot))
+      ) {
         return { success: false, content: 'Error: path is outside the workspace' };
       }
 

@@ -12,7 +12,10 @@ export class PromptEnhancer {
   }
 
   /** Enhance a user prompt for better LLM results */
-  async enhance(userPrompt: string, context?: { mode?: string; recentFiles?: string[] }): Promise<string> {
+  async enhance(
+    userPrompt: string,
+    context?: { mode?: string; recentFiles?: string[] },
+  ): Promise<string> {
     // Short prompts (< 20 chars) likely don't benefit from enhancement
     if (userPrompt.length < 20) return userPrompt;
 
@@ -39,7 +42,10 @@ ${context?.recentFiles?.length ? `- Recently edited files: ${context.recentFiles
 
     try {
       let enhanced = '';
-      for await (const chunk of this.llm.chat(enhanceMessages, { temperature: 0.3, maxTokens: 512 })) {
+      for await (const chunk of this.llm.chat(enhanceMessages, {
+        temperature: 0.3,
+        maxTokens: 512,
+      })) {
         if (chunk.type === 'text' && chunk.text) {
           enhanced += chunk.text;
         }

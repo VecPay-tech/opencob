@@ -13,11 +13,11 @@ For contributor documentation, see the root-level files:
 
 OpenCob is a **pnpm monorepo** with three packages:
 
-| Package | Purpose | Entry Point |
-|---------|---------|-------------|
-| `@opencob/core` | Agent engine, tool system, mode engine, MCP client, LLM adapters, RAG | `packages/core/src/index.ts` |
-| `@opencob/cli` | Interactive REPL + headless `--task` mode | `packages/cli/src/index.ts` |
-| `@opencob/extension` | VS Code extension: chat panel, inline completion, mode selector | `packages/extension/src/extension.ts` |
+| Package              | Purpose                                                               | Entry Point                           |
+| -------------------- | --------------------------------------------------------------------- | ------------------------------------- |
+| `@opencob/core`      | Agent engine, tool system, mode engine, MCP client, LLM adapters, RAG | `packages/core/src/index.ts`          |
+| `@opencob/cli`       | Interactive REPL + headless `--task` mode                             | `packages/cli/src/index.ts`           |
+| `@opencob/extension` | VS Code extension: chat panel, inline completion, mode selector       | `packages/extension/src/extension.ts` |
 
 ### Core Module Map
 
@@ -54,15 +54,15 @@ The Enterprise Edition documentation lives in the `opencob_ee` repository under 
 
 The `spikes/` directory contains technical research and prototypes:
 
-| Spike | Topic |
-|-------|-------|
-| s0-1 | Continue.dev evaluation |
-| s0-2 | State machine patterns |
-| s0-3 | Vector DB comparison |
-| s0-4 | WebView performance |
-| s0-5 | Tree-sitter COBOL grammar |
-| s0-6 | Ollama FIM integration |
-| s0-7 | Chat API design |
-| s0-8 | Codex/Driver-X comparison |
+| Spike | Topic                     |
+| ----- | ------------------------- |
+| s0-1  | Continue.dev evaluation   |
+| s0-2  | State machine patterns    |
+| s0-3  | Vector DB comparison      |
+| s0-4  | WebView performance       |
+| s0-5  | Tree-sitter COBOL grammar |
+| s0-6  | Ollama FIM integration    |
+| s0-7  | Chat API design           |
+| s0-8  | Codex/Driver-X comparison |
 
 These are not built or tested as part of CI — they are research artifacts.

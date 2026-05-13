@@ -16,7 +16,8 @@ export function createSwitchModeTool(modeEngine: ModeEngine): Tool {
       {
         name: 'mode',
         type: 'string',
-        description: 'The mode slug to switch to (e.g., "code", "ask", "plan", "advanced", "orchestrator").',
+        description:
+          'The mode slug to switch to (e.g., "code", "ask", "plan", "advanced", "orchestrator").',
         required: true,
       },
       {

@@ -70,14 +70,8 @@ describe('ConfigLoader', () => {
   it('should load mode-specific rules from rules-{slug}/ directories', async () => {
     const rulesDir = path.join(tmpDir, '.OpenCob', 'rules-code');
     await fs.mkdir(rulesDir, { recursive: true });
-    await fs.writeFile(
-      path.join(rulesDir, 'style.md'),
-      'Always use semicolons in TypeScript.',
-    );
-    await fs.writeFile(
-      path.join(rulesDir, 'naming.md'),
-      'Use camelCase for variables.',
-    );
+    await fs.writeFile(path.join(rulesDir, 'style.md'), 'Always use semicolons in TypeScript.');
+    await fs.writeFile(path.join(rulesDir, 'naming.md'), 'Use camelCase for variables.');
 
     const loader = new ConfigLoader(tmpDir);
     const config = await loader.load();

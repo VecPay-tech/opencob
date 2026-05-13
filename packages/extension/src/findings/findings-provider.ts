@@ -168,11 +168,12 @@ export class FindingsProvider implements vscode.TreeDataProvider<vscode.TreeItem
           );
           item.id = `group-severity-${severity}`;
           item.description = `${findings.length} findings`;
-          item.iconPath = severity === 'error'
-            ? new vscode.ThemeIcon('error')
-            : severity === 'warning'
-              ? new vscode.ThemeIcon('warning')
-              : new vscode.ThemeIcon('info');
+          item.iconPath =
+            severity === 'error'
+              ? new vscode.ThemeIcon('error')
+              : severity === 'warning'
+                ? new vscode.ThemeIcon('warning')
+                : new vscode.ThemeIcon('info');
           return item;
         });
     }
@@ -181,14 +182,16 @@ export class FindingsProvider implements vscode.TreeDataProvider<vscode.TreeItem
   private getGroupChildren(groupId: string): vscode.TreeItem[] {
     if (groupId.startsWith('group-file-')) {
       const file = groupId.replace('group-file-', '');
-      return (this.groupedByFile.get(file) || [])
-        .map((finding) => new FindingNode(finding, vscode.TreeItemCollapsibleState.Collapsed));
+      return (this.groupedByFile.get(file) || []).map(
+        (finding) => new FindingNode(finding, vscode.TreeItemCollapsibleState.Collapsed),
+      );
     }
 
     if (groupId.startsWith('group-severity-')) {
       const severity = groupId.replace('group-severity-', '') as 'error' | 'warning' | 'info';
-      return (this.groupedBySeverity.get(severity) || [])
-        .map((finding) => new FindingNode(finding, vscode.TreeItemCollapsibleState.Collapsed));
+      return (this.groupedBySeverity.get(severity) || []).map(
+        (finding) => new FindingNode(finding, vscode.TreeItemCollapsibleState.Collapsed),
+      );
     }
 
     return [];

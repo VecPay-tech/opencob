@@ -42,8 +42,7 @@ import {
 } from '@opencob/core';
 
 export function activate(context: vscode.ExtensionContext): void {
-  const workspaceRoot =
-    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 
   // Load configuration
   const configLoader = new ConfigLoader(workspaceRoot);
@@ -117,9 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const toolRegistry = new ToolRegistry(modeEngine, {
     approvalCallback: async (tool, params) => {
       const serialized = JSON.stringify(params, null, 2);
-      const preview = serialized.length > 600
-        ? `${serialized.slice(0, 600)}\n...`
-        : serialized;
+      const preview = serialized.length > 600 ? `${serialized.slice(0, 600)}\n...` : serialized;
       const decision = await vscode.window.showWarningMessage(
         `OpenCob requests approval for ${tool.name}.`,
         {
@@ -134,7 +131,10 @@ export function activate(context: vscode.ExtensionContext): void {
     fileFilter: fileFilter.getFilterFn(),
     autoApprove: {
       read: config.get<boolean>('autoApprove.read', false),
-      edit: config.get<boolean>('autoApprove.edit', config.get<boolean>('autoApprove.write', false)),
+      edit: config.get<boolean>(
+        'autoApprove.edit',
+        config.get<boolean>('autoApprove.write', false),
+      ),
       command: config.get<boolean>('autoApprove.command', false),
       mcp: config.get<boolean>('autoApprove.mcp', false),
     },
@@ -178,10 +178,7 @@ export function activate(context: vscode.ExtensionContext): void {
   void agentLoop.loadCustomCommands();
 
   // Register Inline Completion Provider (F2)
-  const inlineCompletionProvider = new InlineCompletionProvider(
-    ollamaAdapter,
-    redactionEngine,
-  );
+  const inlineCompletionProvider = new InlineCompletionProvider(ollamaAdapter, redactionEngine);
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       { pattern: '**' },
@@ -190,11 +187,7 @@ export function activate(context: vscode.ExtensionContext): void {
     inlineCompletionProvider,
   );
 
-  const chatProvider = new ChatPanelProvider(
-    context.extensionUri,
-    agentLoop,
-    modeEngine,
-  );
+  const chatProvider = new ChatPanelProvider(context.extensionUri, agentLoop, modeEngine);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('OpenCob.chatPanel', chatProvider),
@@ -227,7 +220,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('OpenCob.selectModel', async () => {
       const available = await ollamaAdapter.isAvailable();
       if (!available) {
-        vscode.window.showErrorMessage('OpenCob: Ollama is not running. Start it with: ollama serve');
+        vscode.window.showErrorMessage(
+          'OpenCob: Ollama is not running. Start it with: ollama serve',
+        );
         return;
       }
       const models = await ollamaAdapter.listModels();
@@ -261,35 +256,46 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(
         `OpenCob Scan: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info (${counts.total} total)`,
 
-          // Open finding in editor
-          vscode.commands.registerCommand('opencob.openFinding', async (finding: Finding) => {
-            const fileUri = vscode.Uri.file(path.join(workspaceRoot, finding.file));
-            const doc = await vscode.workspace.openTextDocument(fileUri);
-            const editor = await vscode.window.showTextDocument(doc);
-            const line = Math.max(0, finding.line - 1);
-            editor.selection = new vscode.Selection(line, 0, line, 0);
-            editor.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter);
-          }),
+        // Open finding in editor
+        vscode.commands.registerCommand('opencob.openFinding', async (finding: Finding) => {
+          const fileUri = vscode.Uri.file(path.join(workspaceRoot, finding.file));
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          const editor = await vscode.window.showTextDocument(doc);
+          const line = Math.max(0, finding.line - 1);
+          editor.selection = new vscode.Selection(line, 0, line, 0);
+          editor.revealRange(
+            new vscode.Range(line, 0, line, 0),
+            vscode.TextEditorRevealType.InCenter,
+          );
+        }),
 
-          // Toggle findings view mode
-          vscode.commands.registerCommand('OpenCob.toggleFindingsMode', async () => {
-            const result = await vscode.window.showQuickPick(
-              [
-                { label: 'Group by File', description: 'Organize findings by source file', mode: 'file' },
-                { label: 'Group by Severity', description: 'Organize findings by severity level', mode: 'severity' },
-              ],
-              { placeHolder: 'Select findings view mode' },
-            );
-            if (result) {
-              findingsProvider.setViewMode(result.mode as 'file' | 'severity');
-            }
-          }),
+        // Toggle findings view mode
+        vscode.commands.registerCommand('OpenCob.toggleFindingsMode', async () => {
+          const result = await vscode.window.showQuickPick(
+            [
+              {
+                label: 'Group by File',
+                description: 'Organize findings by source file',
+                mode: 'file',
+              },
+              {
+                label: 'Group by Severity',
+                description: 'Organize findings by severity level',
+                mode: 'severity',
+              },
+            ],
+            { placeHolder: 'Select findings view mode' },
+          );
+          if (result) {
+            findingsProvider.setViewMode(result.mode as 'file' | 'severity');
+          }
+        }),
 
-          // Clear findings
-          vscode.commands.registerCommand('OpenCob.clearFindings', () => {
-            findingsProvider.clear();
-            vscode.window.showInformationMessage('OpenCob: Findings cleared');
-          }),
+        // Clear findings
+        vscode.commands.registerCommand('OpenCob.clearFindings', () => {
+          findingsProvider.clear();
+          vscode.window.showInformationMessage('OpenCob: Findings cleared');
+        }),
       );
     }),
   );
@@ -308,7 +314,7 @@ export function activate(context: vscode.ExtensionContext): void {
       context.subscriptions.push(
         vscode.commands.registerCommand('OpenCob.showFindings', () => {
           const allFindings = findingsScanner.getFindings();
-          const findings: Finding[] = allFindings.map(f => ({
+          const findings: Finding[] = allFindings.map((f) => ({
             id: f.id,
             file: f.file,
             line: f.line,
@@ -343,7 +349,9 @@ export function activate(context: vscode.ExtensionContext): void {
     } else {
       indexStatusBar.text = `$(database) ${status.indexedFiles} files indexed`;
       // Auto-hide after 5s
-      setTimeout(() => { indexStatusBar.hide(); }, 5000);
+      setTimeout(() => {
+        indexStatusBar.hide();
+      }, 5000);
     }
   });
 
@@ -367,11 +375,15 @@ export function activate(context: vscode.ExtensionContext): void {
       const blocks = literateCoding.detectBlocks(content, language);
 
       if (blocks.length === 0) {
-        vscode.window.showInformationMessage('OpenCob: No literate coding blocks found (use // @OpenCob: <instruction>)');
+        vscode.window.showInformationMessage(
+          'OpenCob: No literate coding blocks found (use // @OpenCob: <instruction>)',
+        );
         return;
       }
 
-      vscode.window.showInformationMessage(`OpenCob: Found ${blocks.length} literate block(s) — generating code...`);
+      vscode.window.showInformationMessage(
+        `OpenCob: Found ${blocks.length} literate block(s) — generating code...`,
+      );
     }),
   );
 
@@ -419,12 +431,22 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         const state = await eeClient.connect(serverUrl, email);
         // Save settings
-        await vscode.workspace.getConfiguration('OpenCob').update('enterprise.serverUrl', serverUrl, vscode.ConfigurationTarget.Global);
-        await vscode.workspace.getConfiguration('OpenCob').update('enterprise.token', state.user ? eeClient['token'] : '', vscode.ConfigurationTarget.Global);
+        await vscode.workspace
+          .getConfiguration('OpenCob')
+          .update('enterprise.serverUrl', serverUrl, vscode.ConfigurationTarget.Global);
+        await vscode.workspace
+          .getConfiguration('OpenCob')
+          .update(
+            'enterprise.token',
+            state.user ? eeClient['token'] : '',
+            vscode.ConfigurationTarget.Global,
+          );
 
         const caps = state.capabilities?.capabilities;
         const capList = caps
-          ? Object.entries(caps).map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`).join('\n')
+          ? Object.entries(caps)
+              .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`)
+              .join('\n')
           : 'none';
 
         vscode.window.showInformationMessage(
@@ -439,15 +461,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('OpenCob.disconnectEnterprise', async () => {
       eeClient.disconnect();
-      await vscode.workspace.getConfiguration('OpenCob').update('enterprise.token', '', vscode.ConfigurationTarget.Global);
+      await vscode.workspace
+        .getConfiguration('OpenCob')
+        .update('enterprise.token', '', vscode.ConfigurationTarget.Global);
       vscode.window.showInformationMessage('OpenCob: Disconnected from Enterprise server');
     }),
   );
 
-  const statusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100,
-  );
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = `$(hubot) ${config.get<string>('model.chat', 'qwen2.5-coder:7b')}`;
   statusBarItem.tooltip = 'OpenCob — Click to switch model';
   statusBarItem.command = 'OpenCob.selectModel';

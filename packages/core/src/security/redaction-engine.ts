@@ -39,7 +39,8 @@ const BUILT_IN_RULES: RedactionRule[] = [
   },
   {
     name: 'PRIVATE_KEY',
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
+    pattern:
+      /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
     replacement: '[REDACTED_PRIVATE_KEY]',
   },
   {

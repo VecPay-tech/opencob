@@ -13,7 +13,12 @@ export function createExecuteCommandTool(workspaceRoot: string): Tool {
       'Long-running commands are killed after a timeout.',
     parameters: [
       { name: 'command', type: 'string', description: 'The command to execute', required: true },
-      { name: 'timeout', type: 'number', description: 'Timeout in milliseconds (default: 30000)', required: false },
+      {
+        name: 'timeout',
+        type: 'number',
+        description: 'Timeout in milliseconds (default: 30000)',
+        required: false,
+      },
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const command = params.command as string;

@@ -34,12 +34,8 @@ export interface GeneratedTestStub {
  * All output is shown as diffs for human review — never auto-committed.
  */
 export class ModernizationAssistant {
-
   /** Generate a Java class from COBOL copybook data items */
-  generateEntityFromCopybook(
-    dataItems: CobolDataItem[],
-    copybookName: string,
-  ): GeneratedEntity {
+  generateEntityFromCopybook(dataItems: CobolDataItem[], copybookName: string): GeneratedEntity {
     const className = this.toClassName(copybookName);
     const fields: GeneratedEntity['fields'] = [];
     const javaFields: string[] = [];
@@ -70,7 +66,9 @@ export class ModernizationAssistant {
       gettersSetters.push('');
 
       // Setter
-      gettersSetters.push(`    public void set${this.capitalize(fieldName)}(${javaType} ${fieldName}) {`);
+      gettersSetters.push(
+        `    public void set${this.capitalize(fieldName)}(${javaType} ${fieldName}) {`,
+      );
       gettersSetters.push(`        this.${fieldName} = ${fieldName};`);
       gettersSetters.push('    }');
       gettersSetters.push('');
@@ -143,13 +141,17 @@ export class ModernizationAssistant {
       testMethods.push(methodName);
     }
 
-    const methodCode = testMethods.map((name) => [
-      `    @Test`,
-      `    void ${name}() {`,
-      `        // TODO: Implement test logic`,
-      `        // Verify business rules for this paragraph`,
-      `    }`,
-    ].join('\n')).join('\n\n');
+    const methodCode = testMethods
+      .map((name) =>
+        [
+          `    @Test`,
+          `    void ${name}() {`,
+          `        // TODO: Implement test logic`,
+          `        // Verify business rules for this paragraph`,
+          `    }`,
+        ].join('\n'),
+      )
+      .join('\n\n');
 
     const code = [
       `// Test stubs for COBOL program: ${program.programId}`,
@@ -169,7 +171,11 @@ export class ModernizationAssistant {
 
   /** Generate test stubs for RPG procedures */
   generateRpgTestStubs(program: RpgProgram): GeneratedTestStub {
-    const baseName = program.filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? 'RpgProgram';
+    const baseName =
+      program.filePath
+        .split('/')
+        .pop()
+        ?.replace(/\.\w+$/, '') ?? 'RpgProgram';
     const className = this.toClassName(baseName) + 'Test';
     const testMethods: string[] = [];
 
@@ -180,12 +186,13 @@ export class ModernizationAssistant {
       testMethods.push(`test${this.toClassName(sub.name)}`);
     }
 
-    const methodCode = testMethods.map((name) => [
-      `    @Test`,
-      `    void ${name}() {`,
-      `        // TODO: Implement test`,
-      `    }`,
-    ].join('\n')).join('\n\n');
+    const methodCode = testMethods
+      .map((name) =>
+        [`    @Test`, `    void ${name}() {`, `        // TODO: Implement test`, `    }`].join(
+          '\n',
+        ),
+      )
+      .join('\n\n');
 
     const code = [
       `// Test stubs for RPG program: ${baseName}`,
@@ -203,10 +210,7 @@ export class ModernizationAssistant {
   }
 
   /** Translate a COBOL paragraph to Java method scaffolding */
-  translateParagraphToJava(
-    para: CobolParagraph,
-    sourceLines: string[],
-  ): TranslationSuggestion {
+  translateParagraphToJava(para: CobolParagraph, sourceLines: string[]): TranslationSuggestion {
     const paraLines = sourceLines.slice(para.line - 1, para.endLine);
     const sourceCode = paraLines.join('\n');
     const methodName = this.toCamelCase(para.name);
@@ -225,9 +229,7 @@ export class ModernizationAssistant {
       ` */`,
       `public void ${methodName}() {`,
       `    // TODO: Translate COBOL logic`,
-      ...paraLines
-        .filter((l) => l.trim().length > 0)
-        .map((l) => `    // ${l.trim()}`),
+      ...paraLines.filter((l) => l.trim().length > 0).map((l) => `    // ${l.trim()}`),
       `}`,
     ].join('\n');
 

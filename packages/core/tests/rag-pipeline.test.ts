@@ -23,7 +23,8 @@ describe('VectorStore', () => {
       filePath: 'order-service.ts',
       startLine: 1,
       endLine: 30,
-      content: 'export class OrderService { async createOrder(data) { return database.insert(data); } }',
+      content:
+        'export class OrderService { async createOrder(data) { return database.insert(data); } }',
       language: 'typescript',
     });
     store.rebuildIndex();
@@ -78,7 +79,8 @@ describe('RAGPipeline', () => {
         filePath: 'auth.ts',
         startLine: 1,
         endLine: 50,
-        content: 'export class AuthService { async login(username, password) { validate credentials return token } }',
+        content:
+          'export class AuthService { async login(username, password) { validate credentials return token } }',
         language: 'typescript',
       },
       {
@@ -86,7 +88,8 @@ describe('RAGPipeline', () => {
         filePath: 'database.ts',
         startLine: 1,
         endLine: 50,
-        content: 'export class DatabasePool { connect() { open connection } query(sql) { execute query } }',
+        content:
+          'export class DatabasePool { connect() { open connection } query(sql) { execute query } }',
         language: 'typescript',
       },
     ];
@@ -109,11 +112,25 @@ describe('RAGPipeline', () => {
 
   it('re-indexes a single file', () => {
     rag.indexChunks([
-      { id: 'a:1-10', filePath: 'a.ts', startLine: 1, endLine: 10, content: 'old content foo', language: 'ts' },
+      {
+        id: 'a:1-10',
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 10,
+        content: 'old content foo',
+        language: 'ts',
+      },
     ]);
 
     rag.reindexFile('a.ts', [
-      { id: 'a:1-10', filePath: 'a.ts', startLine: 1, endLine: 10, content: 'new content bar baz', language: 'ts' },
+      {
+        id: 'a:1-10',
+        filePath: 'a.ts',
+        startLine: 1,
+        endLine: 10,
+        content: 'new content bar baz',
+        language: 'ts',
+      },
     ]);
 
     expect(rag.getIndexSize()).toBe(1);
@@ -121,7 +138,14 @@ describe('RAGPipeline', () => {
 
   it('deduplicates results', () => {
     const chunks: CodeChunk[] = [
-      { id: 'f:1-50', filePath: 'service.ts', startLine: 1, endLine: 50, content: 'user service management', language: 'ts' },
+      {
+        id: 'f:1-50',
+        filePath: 'service.ts',
+        startLine: 1,
+        endLine: 50,
+        content: 'user service management',
+        language: 'ts',
+      },
     ];
     rag.indexChunks(chunks);
 

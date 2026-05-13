@@ -93,7 +93,12 @@ function analyzeFile(filePath: string, lines: string[]): AnalysisReport {
     }
 
     // Comments
-    if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*')) {
+    if (
+      trimmed.startsWith('//') ||
+      trimmed.startsWith('#') ||
+      trimmed.startsWith('*') ||
+      trimmed.startsWith('/*')
+    ) {
       commentLines++;
       continue;
     }

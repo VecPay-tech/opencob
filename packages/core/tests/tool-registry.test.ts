@@ -21,7 +21,9 @@ describe('ToolRegistry', () => {
 
   beforeEach(() => {
     modeEngine = new ModeEngine();
-    registry = new ToolRegistry(modeEngine, { autoApprove: { read: true, edit: true, command: true } });
+    registry = new ToolRegistry(modeEngine, {
+      autoApprove: { read: true, edit: true, command: true },
+    });
     registry.registerAll([
       makeTool('read_file', 'read'),
       makeTool('write_to_file', 'edit'),

@@ -13,10 +13,7 @@ export interface ToolExecutionResult extends ToolResult {
   blockedReason?: string;
 }
 
-export type ApprovalCallback = (
-  tool: Tool,
-  params: Record<string, unknown>,
-) => Promise<boolean>;
+export type ApprovalCallback = (tool: Tool, params: Record<string, unknown>) => Promise<boolean>;
 
 export interface AutoApproveConfig {
   read: boolean;
@@ -47,20 +44,21 @@ const DEFAULT_AUTO_APPROVE: AutoApproveConfig = {
 };
 
 /** Dangerous shell operators that could indicate command injection (F4.7 Should) */
-const DANGEROUS_OPERATORS = /[;&|`$]|\$\(|>\s*\/|rm\s+-rf|sudo|chmod\s+777|curl\s+.*\|\s*sh|wget\s+.*\|\s*sh/i;
+const DANGEROUS_OPERATORS =
+  /[;&|`$]|\$\(|>\s*\/|rm\s+-rf|sudo|chmod\s+777|curl\s+.*\|\s*sh|wget\s+.*\|\s*sh/i;
 
 /** High-risk command patterns */
 const HIGH_RISK_PATTERNS = [
-  /\brm\s+(-[a-z]*r|-[a-z]*f)/i,   // rm -rf, rm -r, rm -f
-  /\bsudo\b/i,                       // sudo
-  /\bchmod\s+[0-7]*7[0-7]*/i,       // chmod world-writable
-  /\bdrop\s+(table|database)/i,      // DROP TABLE/DATABASE
-  /\btruncate\s+table/i,            // TRUNCATE TABLE
-  /\bgit\s+push\s+.*--force/i,      // git push --force
-  /\bgit\s+reset\s+--hard/i,        // git reset --hard
-  /\bformat\b/i,                     // format commands
-  /\bmkfs\b/i,                       // filesystem creation
-  />\s*\/dev\//i,                    // redirect to device files
+  /\brm\s+(-[a-z]*r|-[a-z]*f)/i, // rm -rf, rm -r, rm -f
+  /\bsudo\b/i, // sudo
+  /\bchmod\s+[0-7]*7[0-7]*/i, // chmod world-writable
+  /\bdrop\s+(table|database)/i, // DROP TABLE/DATABASE
+  /\btruncate\s+table/i, // TRUNCATE TABLE
+  /\bgit\s+push\s+.*--force/i, // git push --force
+  /\bgit\s+reset\s+--hard/i, // git reset --hard
+  /\bformat\b/i, // format commands
+  /\bmkfs\b/i, // filesystem creation
+  />\s*\/dev\//i, // redirect to device files
 ];
 
 export class ToolRegistry {
@@ -128,10 +126,7 @@ export class ToolRegistry {
       parameters: {
         type: 'object',
         properties: Object.fromEntries(
-          tool.parameters.map((p) => [
-            p.name,
-            { type: p.type, description: p.description },
-          ]),
+          tool.parameters.map((p) => [p.name, { type: p.type, description: p.description }]),
         ),
         required: tool.parameters.filter((p) => p.required).map((p) => p.name),
       },
@@ -228,7 +223,8 @@ export class ToolRegistry {
               }
             });
             if (!allowed) {
-              request.parameters._riskWarning = (request.parameters._riskWarning ?? '') +
+              request.parameters._riskWarning =
+                (request.parameters._riskWarning ?? '') +
                 '\n⚠️ Command does not match any allowlisted pattern.';
             }
           }
@@ -319,7 +315,31 @@ export class ToolRegistry {
     }
 
     // Read-only commands are low risk
-    const readOnlyPrefixes = ['ls', 'cat', 'head', 'tail', 'grep', 'find', 'echo', 'pwd', 'whoami', 'date', 'uname', 'which', 'type', 'file', 'wc', 'du', 'df', 'env', 'printenv', 'git status', 'git log', 'git diff', 'git branch'];
+    const readOnlyPrefixes = [
+      'ls',
+      'cat',
+      'head',
+      'tail',
+      'grep',
+      'find',
+      'echo',
+      'pwd',
+      'whoami',
+      'date',
+      'uname',
+      'which',
+      'type',
+      'file',
+      'wc',
+      'du',
+      'df',
+      'env',
+      'printenv',
+      'git status',
+      'git log',
+      'git diff',
+      'git branch',
+    ];
     const trimmed = command.trim().toLowerCase();
     if (readOnlyPrefixes.some((p) => trimmed.startsWith(p))) {
       return { level: 'low', reason: 'Read-only or informational command' };
