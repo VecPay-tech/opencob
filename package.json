@@ -18,17 +18,17 @@
     "commitlint": "commitlint --from=HEAD~1 --to=HEAD"
   },
   "devDependencies": {
-    "turbo": "^2.5.0",
-    "typescript": "^5.8.0",
-    "eslint": "^9.27.0",
-    "prettier": "^3.5.0",
     "@changesets/cli": "^2.29.6",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@typescript-eslint/eslint-plugin": "^8.32.0",
     "@typescript-eslint/parser": "^8.32.0",
+    "eslint": "^9.27.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.5.2",
+    "prettier": "^3.5.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   },
   "lint-staged": {

@@ -78,8 +78,8 @@
       "activitybar": [
         {
           "id": "opencob",
-          "title": "opencob",
-          "icon": "resources/icon.svg"
+          "title": "OpenCob",
+          "icon": "resources/icon-activitybar.svg"
         }
       ]
     },

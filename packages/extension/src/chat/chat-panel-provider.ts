@@ -3,7 +3,7 @@ import type { AgentLoop, ModeEngine, AgentEvent } from '@opencob/core';
 
 export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
-  private currentMode = '💻 Code';
+  private currentMode = 'Code';
   private isProcessing = false;
 
   constructor(
@@ -250,19 +250,19 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="chat">
     <div id="header">
-      <span id="mode">💻 Code</span>
+      <span id="mode"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Code</span>
       <span id="status"></span>
     </div>
     <div id="auto-approve-bar">
       <span>Auto-approve:</span>
-      <label class="aa-toggle" title="Auto-approve read tools"><input type="checkbox" data-group="read"> 📖 Read</label>
-      <label class="aa-toggle" title="Auto-approve write tools"><input type="checkbox" data-group="edit"> ✏️ Write</label>
-      <label class="aa-toggle" title="Auto-approve command tools"><input type="checkbox" data-group="command"> ⚡ Cmd</label>
-      <label class="aa-toggle" title="Auto-approve MCP tools"><input type="checkbox" data-group="mcp"> 🔌 MCP</label>
+      <label class="aa-toggle" title="Auto-approve read tools"><input type="checkbox" data-group="read"> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> Read</label>
+      <label class="aa-toggle" title="Auto-approve write tools"><input type="checkbox" data-group="edit"> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> Write</label>
+      <label class="aa-toggle" title="Auto-approve command tools"><input type="checkbox" data-group="command"> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg> Cmd</label>
+      <label class="aa-toggle" title="Auto-approve MCP tools"><input type="checkbox" data-group="mcp"> <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> MCP</label>
     </div>
     <div id="messages"></div>
     <div id="input-area">
-      <button id="enhance-btn" title="Enhance prompt with AI (refine before sending)">✨</button>
+      <button id="enhance-btn" title="Enhance prompt with AI (refine before sending)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg></button>
       <textarea id="input" rows="2" placeholder="Ask OpenCob... (/ for commands, @ for context)"></textarea>
       <button id="send">Send</button>
     </div>
@@ -435,13 +435,13 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'toolCall':
-          const toolDiv = addMessage('tool-call', '🔧 ' + msg.toolName + '(' + JSON.stringify(msg.parameters, null, 2) + ')');
+          const toolDiv = addMessage('tool-call', '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> ' + msg.toolName + '(' + JSON.stringify(msg.parameters, null, 2) + ')');
           statusEl.textContent = 'running ' + msg.toolName + '...';
           break;
 
         case 'toolResult':
           const cls = msg.success ? 'tool-result' : 'tool-result error';
-          addMessage(cls, (msg.success ? '✅ ' : '❌ ') + msg.toolName + ': ' + msg.content);
+          addMessage(cls, (msg.success ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle"><polyline points="20 6 9 17 4 12"/></svg> ' : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg> ') + msg.toolName + ': ' + msg.content);
           break;
 
         case 'responseEnd':
@@ -453,7 +453,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'error':
-          addMessage('error-msg', '⚠️ ' + msg.text);
+          addMessage('error-msg', '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ' + msg.text);
           statusEl.textContent = '';
           statusEl.className = '';
           sendBtn.disabled = false;
