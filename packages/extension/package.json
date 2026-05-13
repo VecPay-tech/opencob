@@ -1,10 +1,15 @@
-﻿{
-  "name": "@opencob/extension",
-  "displayName": "opencob",
+{
+  "name": "opencob",
+  "displayName": "OpenCob",
   "description": "Open-Source AI Coding Assistant — Privacy-First, Legacy-Ready",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "publisher": "opencob",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mountek/opencob"
+  },
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -139,10 +144,50 @@
           "default": false,
           "description": "Auto-approve terminal commands"
         },
+        "OpenCob.model.embedding": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "Model for text embeddings (workspace indexing)"
+        },
         "OpenCob.inlineCompletion.enabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable inline code completion (FIM ghost text)"
+        },
+        "OpenCob.inlineCompletion.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 2000,
+          "description": "Debounce delay in milliseconds before triggering completion"
+        },
+        "OpenCob.inlineCompletion.maxPrefixChars": {
+          "type": "number",
+          "default": 8192,
+          "minimum": 1024,
+          "maximum": 32768,
+          "description": "Maximum prefix characters sent to the FIM model (~4 chars per token)"
+        },
+        "OpenCob.inlineCompletion.maxSuffixChars": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 512,
+          "maximum": 16384,
+          "description": "Maximum suffix characters sent to the FIM model"
+        },
+        "OpenCob.inlineCompletion.maxCrossFileChars": {
+          "type": "number",
+          "default": 2048,
+          "minimum": 0,
+          "maximum": 8192,
+          "description": "Maximum characters from related open files for cross-file context"
+        },
+        "OpenCob.contextWindow.maxTokens": {
+          "type": "number",
+          "default": 8192,
+          "minimum": 1024,
+          "maximum": 131072,
+          "description": "Maximum context window tokens for chat interactions"
         },
         "OpenCob.enterprise.serverUrl": {
           "type": "string",

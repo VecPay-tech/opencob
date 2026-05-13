@@ -1,10 +1,15 @@
 import * as vscode from 'vscode';
 import type { LlmAdapter, RedactionEngine } from '@opencob/core';
 
-const DEBOUNCE_MS = 300;
-const MAX_PREFIX_CHARS = 8192; // ~2048 tokens
-const MAX_SUFFIX_CHARS = 4096; // ~1024 tokens
-const MAX_CROSS_FILE_CHARS = 2048; // ~512 tokens for import context
+function getConfig() {
+  const config = vscode.workspace.getConfiguration('OpenCob.inlineCompletion');
+  return {
+    debounceMs: config.get<number>('debounceMs', 300),
+    maxPrefixChars: config.get<number>('maxPrefixChars', 8192),
+    maxSuffixChars: config.get<number>('maxSuffixChars', 4096),
+    maxCrossFileChars: config.get<number>('maxCrossFileChars', 2048),
+  };
+}
 
 export class InlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private cancelTokenSource: vscode.CancellationTokenSource | null = null;
@@ -38,6 +43,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
 
     // Debounce: wait before making request
     return new Promise((resolve) => {
+      const { debounceMs } = getConfig();
       this.debounceTimer = setTimeout(async () => {
         if (token.isCancellationRequested || localToken.isCancellationRequested) {
           resolve(null);
@@ -50,7 +56,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
         } catch {
           resolve(null);
         }
-      }, DEBOUNCE_MS);
+      }, debounceMs);
 
       // Cancel on external cancellation
       token.onCancellationRequested(() => {
@@ -67,14 +73,16 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
     position: vscode.Position,
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | null> {
+    const { maxPrefixChars, maxSuffixChars } = getConfig();
+
     // Extract prefix (text before cursor)
     const prefixRange = new vscode.Range(
       new vscode.Position(Math.max(0, position.line - 100), 0),
       position,
     );
     let prefix = document.getText(prefixRange);
-    if (prefix.length > MAX_PREFIX_CHARS) {
-      prefix = prefix.slice(-MAX_PREFIX_CHARS);
+    if (prefix.length > maxPrefixChars) {
+      prefix = prefix.slice(-maxPrefixChars);
     }
 
     // Extract suffix (text after cursor)
@@ -83,8 +91,8 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
       new vscode.Position(Math.min(document.lineCount - 1, position.line + 50), 0),
     );
     let suffix = document.getText(suffixRange);
-    if (suffix.length > MAX_SUFFIX_CHARS) {
-      suffix = suffix.slice(0, MAX_SUFFIX_CHARS);
+    if (suffix.length > maxSuffixChars) {
+      suffix = suffix.slice(0, maxSuffixChars);
     }
 
     // Don't complete if prefix is empty or very short
@@ -144,6 +152,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
    * Includes type signatures and export declarations from imported files.
    */
   private async gatherCrossFileContext(document: vscode.TextDocument): Promise<string> {
+    const { maxCrossFileChars } = getConfig();
     const text = document.getText();
     const importPaths: string[] = [];
 
@@ -167,7 +176,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
 
     for (const importPath of importPaths.slice(0, 5)) {
       // Limit to 5 imports
-      if (totalChars >= MAX_CROSS_FILE_CHARS) break;
+      if (totalChars >= maxCrossFileChars) break;
 
       try {
         // Resolve relative imports
@@ -196,7 +205,7 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
 
         if (exportLines) {
           const snippet = `// ${importPath}\n${exportLines}`;
-          if (totalChars + snippet.length <= MAX_CROSS_FILE_CHARS) {
+          if (totalChars + snippet.length <= maxCrossFileChars) {
             snippets.push(snippet);
             totalChars += snippet.length;
           }
