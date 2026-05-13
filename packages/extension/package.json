@@ -1,0 +1,170 @@
+﻿{
+  "name": "@opencob/extension",
+  "displayName": "opencob",
+  "description": "Open-Source AI Coding Assistant — Privacy-First, Legacy-Ready",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "publisher": "opencob",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": ["AI", "Programming Languages", "Chat"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "OpenCob.openChat",
+        "title": "OpenCob: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "OpenCob.switchMode",
+        "title": "OpenCob: Switch Mode"
+      },
+      {
+        "command": "OpenCob.newConversation",
+        "title": "OpenCob: New Conversation"
+      },
+      {
+        "command": "OpenCob.toggleInlineCompletion",
+        "title": "OpenCob: Toggle Inline Completion"
+      },
+      {
+        "command": "OpenCob.selectModel",
+        "title": "OpenCob: Select Model"
+      },
+      {
+        "command": "OpenCob.undoLastTurn",
+        "title": "OpenCob: Undo Last Turn"
+      },
+      {
+        "command": "OpenCob.scanWorkspace",
+        "title": "OpenCob: Scan Workspace for Issues"
+      },
+      {
+        "command": "OpenCob.showFindings",
+        "title": "OpenCob: Show Findings in Panel"
+      },
+      {
+        "command": "OpenCob.toggleFindingsMode",
+        "title": "OpenCob: Toggle Findings View Mode"
+      },
+      {
+        "command": "OpenCob.clearFindings",
+        "title": "OpenCob: Clear All Findings"
+      },
+      {
+        "command": "OpenCob.connectEnterprise",
+        "title": "OpenCob: Connect to Enterprise Server"
+      },
+      {
+        "command": "OpenCob.disconnectEnterprise",
+        "title": "OpenCob: Disconnect from Enterprise Server"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencob",
+          "title": "opencob",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencob": [
+        {
+          "type": "webview",
+          "id": "OpenCob.chatPanel",
+          "name": "Chat"
+        },
+        {
+          "type": "tree",
+          "id": "OpenCob.findings",
+          "name": "Findings"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "opencob",
+      "properties": {
+        "OpenCob.model.provider": {
+          "type": "string",
+          "default": "ollama",
+          "enum": ["ollama", "openai-compatible"],
+          "description": "LLM provider for inference"
+        },
+        "OpenCob.model.chat": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "description": "Model for chat interactions"
+        },
+        "OpenCob.model.completion": {
+          "type": "string",
+          "default": "qwen2.5-coder:1.5b",
+          "description": "Model for inline code completion (FIM)"
+        },
+        "OpenCob.ollama.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Ollama API base URL"
+        },
+        "OpenCob.autoApprove.read": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve read operations"
+        },
+        "OpenCob.autoApprove.edit": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve file edit operations"
+        },
+        "OpenCob.autoApprove.write": {
+          "type": "boolean",
+          "default": false,
+          "description": "Deprecated alias for OpenCob.autoApprove.edit"
+        },
+        "OpenCob.autoApprove.command": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-approve terminal commands"
+        },
+        "OpenCob.inlineCompletion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline code completion (FIM ghost text)"
+        },
+        "OpenCob.enterprise.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "OpenCob Enterprise server URL (e.g., https://opencob-ee.company.com)"
+        },
+        "OpenCob.enterprise.token": {
+          "type": "string",
+          "default": "",
+          "description": "Authentication token for the Enterprise server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "pnpm build --watch",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@opencob/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.100.0",
+    "@vscode/test-electron": "^2.5.0",
+    "esbuild": "^0.25.0",
+    "rimraf": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}

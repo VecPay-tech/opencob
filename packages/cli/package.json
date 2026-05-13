@@ -1,0 +1,25 @@
+{
+  "name": "@opencob/cli",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "OpenCob Shell — terminal-based AI assistant",
+  "type": "module",
+  "bin": {
+    "opencob": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=node --banner:js=\"#!/usr/bin/env node\"",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@opencob/core": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "rimraf": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@opencob/core",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "OpenCob core engine — modes, tools, agent orchestration, LLM adapters",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "rimraf": "^6.0.0",
+    "vitest": "^3.2.0"
+  }
+}

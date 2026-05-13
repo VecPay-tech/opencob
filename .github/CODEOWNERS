@@ -1,0 +1,10 @@
+# Default owner for all files
+* @opencob/maintainers
+
+# Package owners
+/packages/core/ @opencob/core-team
+/packages/cli/ @opencob/cli-team
+/packages/extension/ @opencob/extension-team
+
+# CI and release
+/.github/ @opencob/maintainers
