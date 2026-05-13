@@ -41,4 +41,12 @@ export interface LlmAdapter {
   listModels(): Promise<string[]>;
 
   isAvailable(): Promise<boolean>;
+
+  setChatModel(model: string): void;
+
+  setCompletionModel(model: string): void;
+
+  getChatModel(): string;
+
+  getCompletionModel(): string;
 }

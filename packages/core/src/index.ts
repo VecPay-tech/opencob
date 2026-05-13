@@ -43,6 +43,7 @@ export {
   type CompletionResponse,
 } from './llm/types.js';
 export { OllamaAdapter } from './llm/ollama-adapter.js';
+export { LiteLLMAdapter, type LiteLLMConfig } from './llm/litellm-adapter.js';
 export { ModelRouter, type ModelRouteConfig, type TaskType } from './llm/model-router.js';
 
 // Agent

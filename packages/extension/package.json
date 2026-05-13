@@ -105,7 +105,13 @@
           "default": "ollama",
           "enum": [
             "ollama",
+            "litellm",
             "openai-compatible"
+          ],
+          "enumDescriptions": [
+            "Local Ollama server (default, privacy-first)",
+            "LiteLLM proxy (OpenAI-compatible gateway to Azure, Anthropic, etc.)",
+            "Any OpenAI-compatible API endpoint"
           ],
           "description": "LLM provider for inference"
         },
@@ -123,6 +129,16 @@
           "type": "string",
           "default": "http://127.0.0.1:11434",
           "description": "Ollama API base URL"
+        },
+        "OpenCob.litellm.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4000",
+          "description": "LiteLLM proxy base URL (e.g., https://your-litellm-proxy.azurecontainerapps.io)"
+        },
+        "OpenCob.litellm.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for LiteLLM proxy (Bearer token)"
         },
         "OpenCob.autoApprove.read": {
           "type": "boolean",

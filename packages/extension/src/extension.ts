@@ -7,6 +7,7 @@ import { EEClient } from './enterprise/ee-client.js';
 import {
   ModeEngine,
   OllamaAdapter,
+  LiteLLMAdapter,
   ToolRegistry,
   ConversationManager,
   AgentLoop,
@@ -65,11 +66,24 @@ export function activate(context: vscode.ExtensionContext): void {
   // Initialize core components
   const modeEngine = new ModeEngine();
   const config = vscode.workspace.getConfiguration('OpenCob');
-  const ollamaAdapter = new OllamaAdapter({
-    baseUrl: config.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434'),
-    chatModel: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
-    completionModel: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
-  });
+  const provider = config.get<string>('model.provider', 'ollama');
+
+  // Create the appropriate LLM adapter based on provider setting
+  let llmAdapter: OllamaAdapter | LiteLLMAdapter;
+  if (provider === 'litellm' || provider === 'openai-compatible') {
+    llmAdapter = new LiteLLMAdapter({
+      baseUrl: config.get<string>('litellm.baseUrl', 'http://127.0.0.1:4000'),
+      apiKey: config.get<string>('litellm.apiKey', ''),
+      chatModel: config.get<string>('model.chat', 'azure/gpt-5-mini-EU'),
+      completionModel: config.get<string>('model.completion', 'azure/gpt-5-nano-EU'),
+    });
+  } else {
+    llmAdapter = new OllamaAdapter({
+      baseUrl: config.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434'),
+      chatModel: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
+      completionModel: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
+    });
+  }
 
   const fileFilter = new FileFilter(workspaceRoot);
   fileFilter.loadIgnoreFile();
@@ -104,7 +118,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Initialize Model Router (F9)
-  const modelRouter = new ModelRouter(ollamaAdapter, {
+  const modelRouter = new ModelRouter(llmAdapter, {
     chat: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
     completion: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
     embedding: config.get<string>('model.embedding', 'nomic-embed-text'),
@@ -167,7 +181,7 @@ export function activate(context: vscode.ExtensionContext): void {
     persistencePath: path.join(workspaceRoot, '.opencob', 'conversations.json'),
   });
   const agentLoop = new AgentLoop(
-    ollamaAdapter,
+    llmAdapter,
     toolRegistry,
     conversationManager,
     modeEngine,
@@ -178,7 +192,7 @@ export function activate(context: vscode.ExtensionContext): void {
   void agentLoop.loadCustomCommands();
 
   // Register Inline Completion Provider (F2)
-  const inlineCompletionProvider = new InlineCompletionProvider(ollamaAdapter, redactionEngine);
+  const inlineCompletionProvider = new InlineCompletionProvider(llmAdapter, redactionEngine);
   context.subscriptions.push(
     vscode.languages.registerInlineCompletionItemProvider(
       { pattern: '**' },
@@ -218,20 +232,20 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Model picker (F9)
     vscode.commands.registerCommand('OpenCob.selectModel', async () => {
-      const available = await ollamaAdapter.isAvailable();
+      const available = await llmAdapter.isAvailable();
       if (!available) {
         vscode.window.showErrorMessage(
-          'OpenCob: Ollama is not running. Start it with: ollama serve',
+          `OpenCob: ${provider === 'ollama' ? 'Ollama is not running. Start it with: ollama serve' : 'LLM provider is not reachable. Check your settings.'}`,
         );
         return;
       }
-      const models = await ollamaAdapter.listModels();
-      const items = models.map((m) => ({ label: m, description: 'Ollama model' }));
+      const models = await llmAdapter.listModels();
+      const items = models.map((m) => ({ label: m, description: `${provider} model` }));
       const selected = await vscode.window.showQuickPick(items, {
         placeHolder: 'Select a model for chat',
       });
       if (selected) {
-        ollamaAdapter.setChatModel(selected.label);
+        llmAdapter.setChatModel(selected.label);
         statusBarItem.text = `$(hubot) ${selected.label}`;
         vscode.window.showInformationMessage(`OpenCob: Switched to ${selected.label}`);
       }
