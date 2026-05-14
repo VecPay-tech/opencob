@@ -1,0 +1,46 @@
+{
+  "activeId": "2b2152a6-88f8-477b-b35a-e3e641c24172",
+  "conversations": [
+    {
+      "id": "2b2152a6-88f8-477b-b35a-e3e641c24172",
+      "title": "hi",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! 👋  \nHow’s it going? What do you want to work on today — coding, debugging, or something else?"
+        },
+        {
+          "role": "user",
+          "content": "what name is ur model"
+        },
+        {
+          "role": "assistant",
+          "content": "I’m running as **OpenCob**, which is a custom AI assistant built for software engineering tasks — especially with strong capabilities in code analysis, refactoring, and dependency tracing.  \n\nUnder the hood, my responses are powered by a large language model, but the exact base model name isn’t exposed here — instead, you can think of OpenCob as a specialized layer with enhanced tooling for code work.  \n\nDo you want me to tell you more about **my capabilities** and toolset?"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "Hello again! 👋  \nHow are you doing? Are we jumping into some coding today or just chatting?"
+        },
+        {
+          "role": "user",
+          "content": "hi"
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! 👋  \nWhat’s up? Do you have something specific you want to work on or explore?"
+        }
+      ],
+      "createdAt": 1778682209704,
+      "updatedAt": 1778683715388,
+      "modeSlug": "code"
+    }
+  ]
+}

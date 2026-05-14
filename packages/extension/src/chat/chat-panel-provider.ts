@@ -1,11 +1,14 @@
 import * as vscode from 'vscode';
 import type { AgentLoop, ModeEngine, AgentEvent } from '@opencob/core';
 
+const outputChannel = vscode.window.createOutputChannel('OpenCob Chat');
+
 export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private currentMode = 'Code';
   private isProcessing = false;
   private pendingModel = '';
+  private pendingModels: string[] = [];
   private pendingStatus: { connected: boolean; provider: string; modelCount: number } | null = null;
 
   constructor(
@@ -28,16 +31,23 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtml();
 
-    // Send any pending state that arrived before webview resolved
-    if (this.pendingModel) {
-      webviewView.webview.postMessage({ type: 'modelChanged', model: this.pendingModel });
-    }
-    if (this.pendingStatus) {
-      webviewView.webview.postMessage({ type: 'connectionStatus', ...this.pendingStatus });
-    }
-
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
+        case 'webviewReady':
+          // Send pending state now that the webview script is listening
+          if (this.pendingModels.length > 0) {
+            this.view?.webview.postMessage({
+              type: 'modelsAvailable',
+              models: this.pendingModels,
+              current: this.pendingModel,
+            });
+          } else if (this.pendingModel) {
+            this.view?.webview.postMessage({ type: 'modelChanged', model: this.pendingModel });
+          }
+          if (this.pendingStatus) {
+            this.view?.webview.postMessage({ type: 'connectionStatus', ...this.pendingStatus });
+          }
+          break;
         case 'chat':
           await this.handleChatMessage(message.text);
           break;
@@ -59,11 +69,11 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
         case 'enhancePrompt':
           await this.handleEnhancePrompt(message.text);
           break;
-        case 'selectModel':
-          vscode.commands.executeCommand('OpenCob.selectModel');
+        case 'switchModel':
+          await this.handleSwitchModel(message.model);
           break;
-        case 'testConnection':
-          vscode.commands.executeCommand('OpenCob.testConnection');
+        case 'contextSearch':
+          await this.handleContextSearch(message.query);
           break;
       }
     });
@@ -84,31 +94,53 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     this.view?.webview.postMessage({ type: 'connectionStatus', connected, provider, modelCount });
   }
 
+  setAvailableModels(models: string[], currentModel: string): void {
+    this.pendingModels = models;
+    this.pendingModel = currentModel;
+    this.view?.webview.postMessage({ type: 'modelsAvailable', models, current: currentModel });
+  }
+
   newConversation(): void {
     this.view?.webview.postMessage({ type: 'newConversation' });
   }
 
   private async handleChatMessage(text: string): Promise<void> {
-    if (this.isProcessing) return;
+    outputChannel.appendLine(
+      `[chat] handleChatMessage called, text="${text}", isProcessing=${this.isProcessing}, view=${!!this.view}`,
+    );
+    if (this.isProcessing) {
+      outputChannel.appendLine('[chat] BLOCKED — isProcessing is true, ignoring message');
+      return;
+    }
     this.isProcessing = true;
 
     try {
+      // Resolve #file context references
+      const processedText = await this.resolveFileReferences(text);
+
       // Signal start of response
+      outputChannel.appendLine('[chat] sending responseStart');
       this.view?.webview.postMessage({ type: 'responseStart' });
 
-      for await (const event of this.agentLoop.processMessage(text)) {
+      let eventCount = 0;
+      for await (const event of this.agentLoop.processMessage(processedText)) {
+        eventCount++;
+        outputChannel.appendLine(`[chat] event #${eventCount}: type=${event.type}`);
         this.handleAgentEvent(event);
       }
 
+      outputChannel.appendLine(`[chat] loop done, total events=${eventCount}, sending responseEnd`);
       this.view?.webview.postMessage({ type: 'responseEnd' });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      outputChannel.appendLine(`[chat] ERROR: ${msg}`);
       this.view?.webview.postMessage({
         type: 'error',
         text: `Error: ${msg}`,
       });
     } finally {
       this.isProcessing = false;
+      outputChannel.appendLine('[chat] isProcessing reset to false');
     }
   }
 
@@ -116,6 +148,67 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private handleAutoApproveToggle(group: string, enabled: boolean): void {
     const config = vscode.workspace.getConfiguration('opencob.autoApprove');
     config.update(group, enabled, vscode.ConfigurationTarget.Workspace);
+  }
+
+  /** Handle model switch from the chat panel dropdown */
+  private async handleSwitchModel(model: string): Promise<void> {
+    this.pendingModel = model;
+    // Notify extension to actually switch the LLM adapter
+    await vscode.commands.executeCommand('OpenCob.switchModelTo', model);
+  }
+
+  /** Handle # context search — find workspace files matching query */
+  private async handleContextSearch(query: string): Promise<void> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders) {
+      this.view?.webview.postMessage({ type: 'contextFiles', files: [] });
+      return;
+    }
+    const pattern = query ? `**/*${query}*` : '**/*';
+    try {
+      const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 20);
+      const root = workspaceFolders[0].uri.fsPath;
+      const files = uris.map((u) => {
+        const rel = u.fsPath.replace(root, '').replace(/\\/g, '/');
+        return rel.startsWith('/') ? rel.slice(1) : rel;
+      });
+      files.sort((a, b) => a.length - b.length);
+      this.view?.webview.postMessage({ type: 'contextFiles', files });
+    } catch {
+      this.view?.webview.postMessage({ type: 'contextFiles', files: [] });
+    }
+  }
+
+  /** Resolve #file references in the message text — read file content and inject as context */
+  private async resolveFileReferences(text: string): Promise<string> {
+    const pattern = /#([\w.\/\\-]+)/g;
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length === 0) return text;
+
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!workspaceRoot) return text;
+
+    let contextBlock = '';
+    for (const match of matches) {
+      const filePath = match[1];
+      try {
+        const fileUri = vscode.Uri.joinPath(workspaceRoot, filePath);
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const textContent = Buffer.from(content).toString('utf-8');
+        const truncated =
+          textContent.length > 8000
+            ? textContent.slice(0, 8000) + '\n... (truncated)'
+            : textContent;
+        contextBlock += `\n\n--- File: ${filePath} ---\n\`\`\`\n${truncated}\n\`\`\`\n`;
+      } catch {
+        // File not found — leave as-is
+      }
+    }
+
+    if (contextBlock) {
+      return text + '\n\n[Referenced files context]:' + contextBlock;
+    }
+    return text;
   }
 
   /** Handle enhance prompt request from the webview (F1.1 Should) */
@@ -248,7 +341,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     .file-link { color: var(--vscode-textLink-foreground); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; }
     .file-link:hover { text-decoration-style: solid; }
 
-    #input-area { display: flex; padding: 8px; gap: 4px; border-top: 1px solid var(--vscode-panel-border); align-items: flex-end; }
+    #input-area { display: flex; padding: 8px; gap: 4px; border-top: 1px solid var(--vscode-panel-border); align-items: flex-end; position: relative; }
     #input { flex: 1; padding: 6px 8px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); border-radius: 4px; font-family: inherit; font-size: inherit; resize: none; min-height: 36px; max-height: 120px; }
     #input:focus { outline: 1px solid var(--vscode-focusBorder); }
     button#send { padding: 6px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; cursor: pointer; font-size: inherit; }
@@ -256,12 +349,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     button#send:disabled { opacity: 0.5; cursor: not-allowed; }
     #header { display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); gap: 6px; flex-wrap: wrap; }
     #mode { font-size: 12px; color: var(--vscode-descriptionForeground); }
-    #model-btn { background: none; border: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); cursor: pointer; padding: 2px 8px; font-size: 11px; border-radius: 3px; display: flex; align-items: center; gap: 4px; }
-    #model-btn:hover { background: var(--vscode-toolbar-hoverBackground); border-color: var(--vscode-focusBorder); }
-    #conn-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 11px; border-radius: 3px; display: flex; align-items: center; gap: 3px; color: var(--vscode-descriptionForeground); }
-    #conn-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-    #conn-btn.connected { color: var(--vscode-charts-green); }
-    #conn-btn.disconnected { color: var(--vscode-errorForeground); }
+    #model-select { background: var(--vscode-input-background); border: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); cursor: pointer; padding: 2px 6px; font-size: 11px; border-radius: 3px; max-width: 180px; }
+    #model-select:focus { outline: 1px solid var(--vscode-focusBorder); }
+    #model-select:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { font-size: 11px; color: var(--vscode-descriptionForeground); margin-left: auto; }
 
     /* Auto-approve toolbar (F1.1 Should) */
@@ -277,14 +367,29 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     #enhance-btn.enhancing { animation: pulse 1s infinite; }
     .thinking { animation: pulse 1.5s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* Context popup */
+    #context-popup { display: none; position: absolute; bottom: 100%; left: 8px; right: 8px; max-height: 200px; overflow-y: auto; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border)); border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); z-index: 100; }
+    .ctx-item { padding: 4px 8px; font-size: 12px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ctx-item:hover, .ctx-item.selected { background: var(--vscode-list-hoverBackground); color: var(--vscode-list-hoverForeground); }
   </style>
 </head>
 <body>
   <div id="chat">
     <div id="header">
       <span id="mode"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Code</span>
-      <button id="model-btn" title="Click to switch model"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m6.8 15-3.5 2"/><path d="m20.7 7-3.5 2"/><path d="M6.8 9 3.3 7"/><path d="m20.7 17-3.5-2"/><path d="m9 22 3-8 3 8"/><path d="M8 6a6 6 0 0 1 12 0c0 7-6 4-6 12"/></svg> <span id="model-name">not connected</span></button>
-      <button id="conn-btn" class="disconnected" title="Test provider connection"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> <span id="conn-text">check</span></button>
+      <select id="model-select" title="Switch model for this chat"${this.pendingModels.length === 0 ? ' disabled' : ''}>
+        ${
+          this.pendingModels.length > 0
+            ? this.pendingModels
+                .map(
+                  (m) =>
+                    `<option value="${m}"${m === this.pendingModel ? ' selected' : ''}>${m}</option>`,
+                )
+                .join('')
+            : '<option value="">No models loaded</option>'
+        }
+      </select>
       <span id="status"></span>
     </div>
     <div id="auto-approve-bar">
@@ -296,8 +401,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     </div>
     <div id="messages"></div>
     <div id="input-area">
+      <div id="context-popup"><div id="context-list"></div></div>
       <button id="enhance-btn" title="Enhance prompt with AI (refine before sending)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg></button>
-      <textarea id="input" rows="2" placeholder="Ask OpenCob... (/ for commands, @ for context)"></textarea>
+      <textarea id="input" rows="2" placeholder="Ask OpenCob... (/ for commands, # for file context)"></textarea>
       <button id="send">Send</button>
     </div>
   </div>
@@ -309,22 +415,16 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     const modeEl = document.getElementById('mode');
     const statusEl = document.getElementById('status');
     const enhanceBtn = document.getElementById('enhance-btn');
-    const modelBtn = document.getElementById('model-btn');
-    const modelNameEl = document.getElementById('model-name');
-    const connBtn = document.getElementById('conn-btn');
-    const connText = document.getElementById('conn-text');
+    const modelSelect = document.getElementById('model-select');
     let currentAssistantEl = null;
     let assistantText = '';
 
-    // Model switch button — triggers VS Code command
-    modelBtn.addEventListener('click', () => {
-      vscode.postMessage({ type: 'selectModel' });
-    });
-
-    // Connection test button
-    connBtn.addEventListener('click', () => {
-      connText.textContent = 'testing...';
-      vscode.postMessage({ type: 'testConnection' });
+    // Model switch dropdown
+    modelSelect.addEventListener('change', () => {
+      const model = modelSelect.value;
+      if (model) {
+        vscode.postMessage({ type: 'switchModel', model });
+      }
     });
 
     // Auto-approve toggles (F1.1 Should)
@@ -348,11 +448,89 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     sendBtn.addEventListener('click', send);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      if (e.key === 'Escape' && contextPopup.style.display !== 'none') {
+        contextPopup.style.display = 'none';
+        e.preventDefault();
+      }
     });
     input.addEventListener('input', () => {
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      handleContextTrigger();
     });
+
+    // # context picker
+    const contextPopup = document.getElementById('context-popup');
+    const contextList = document.getElementById('context-list');
+    let contextFiles = [];
+    let contextQuery = '';
+    let contextStartIdx = -1;
+    let contextSelectedIdx = 0;
+
+    function handleContextTrigger() {
+      const val = input.value;
+      const cursor = input.selectionStart;
+      // Find last # before cursor
+      const before = val.substring(0, cursor);
+      const hashIdx = before.lastIndexOf('#');
+      if (hashIdx === -1 || (hashIdx > 0 && before[hashIdx - 1] !== ' ' && before[hashIdx - 1] !== '\\n')) {
+        contextPopup.style.display = 'none';
+        return;
+      }
+      const query = before.substring(hashIdx + 1);
+      if (query.includes(' ') && query.length > 30) {
+        contextPopup.style.display = 'none';
+        return;
+      }
+      contextStartIdx = hashIdx;
+      contextQuery = query.toLowerCase();
+      vscode.postMessage({ type: 'contextSearch', query: contextQuery });
+    }
+
+    function showContextPopup(files) {
+      contextFiles = files;
+      contextSelectedIdx = 0;
+      if (!files.length) { contextPopup.style.display = 'none'; return; }
+      contextList.innerHTML = files.slice(0, 12).map((f, i) =>
+        '<div class="ctx-item' + (i === 0 ? ' selected' : '') + '" data-idx="' + i + '">' + escapeHtml(f) + '</div>'
+      ).join('');
+      contextPopup.style.display = 'block';
+      contextList.querySelectorAll('.ctx-item').forEach(el => {
+        el.addEventListener('click', () => { pickContext(parseInt(el.dataset.idx)); });
+      });
+    }
+
+    function pickContext(idx) {
+      const file = contextFiles[idx];
+      if (!file) return;
+      const before = input.value.substring(0, contextStartIdx);
+      const after = input.value.substring(input.selectionStart);
+      input.value = before + '#' + file + ' ' + after;
+      input.selectionStart = input.selectionEnd = before.length + 1 + file.length + 1;
+      contextPopup.style.display = 'none';
+      input.focus();
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (contextPopup.style.display === 'none') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        contextSelectedIdx = Math.min(contextSelectedIdx + 1, contextFiles.length - 1);
+        updateContextSelection();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        contextSelectedIdx = Math.max(contextSelectedIdx - 1, 0);
+        updateContextSelection();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (contextFiles.length > 0) { e.preventDefault(); pickContext(contextSelectedIdx); }
+      }
+    });
+
+    function updateContextSelection() {
+      contextList.querySelectorAll('.ctx-item').forEach((el, i) => {
+        el.classList.toggle('selected', i === contextSelectedIdx);
+      });
+    }
 
     function send() {
       const text = input.value.trim();
@@ -383,7 +561,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       let html = escapeHtml(md);
 
       // Code blocks: \`\`\`lang\\ncontent\\n\`\`\`
-      html = html.replace(/\`\`\`(\w*)\n([\s\S]*?)\`\`\`/g, (_, lang, code) => {
+      html = html.replace(/\`\`\`(\\w*)\\n([\\s\\S]*?)\`\`\`/g, (_, lang, code) => {
         const langLabel = lang || 'text';
         const isDiff = langLabel === 'diff';
         let codeHtml = code;
@@ -406,10 +584,10 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       html = html.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
 
       // Bold
-      html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
 
       // Italic
-      html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+      html = html.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
 
       // Headers
       html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -513,19 +691,29 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'modelChanged':
-          if (modelNameEl) modelNameEl.textContent = msg.model;
+          if (modelSelect) modelSelect.value = msg.model;
+          break;
+
+        case 'modelsAvailable':
+          if (modelSelect) {
+            modelSelect.innerHTML = '';
+            modelSelect.disabled = false;
+            (msg.models || []).forEach(function(m) {
+              const opt = document.createElement('option');
+              opt.value = m;
+              opt.textContent = m;
+              if (m === msg.current) opt.selected = true;
+              modelSelect.appendChild(opt);
+            });
+          }
           break;
 
         case 'connectionStatus':
           if (msg.connected) {
-            connBtn.className = 'connected';
-            connBtn.title = msg.provider + ' connected (' + msg.modelCount + ' models)';
-            connText.textContent = msg.modelCount + ' models';
+            modelSelect.title = msg.provider + ' connected (' + msg.modelCount + ' models)';
           } else {
-            connBtn.className = 'disconnected';
-            connBtn.title = msg.provider + ' offline — click to retry';
-            connText.textContent = 'offline';
-            if (modelNameEl) modelNameEl.textContent = 'not connected';
+            modelSelect.disabled = true;
+            modelSelect.innerHTML = '<option value="">Not connected — configure in Settings</option>';
           }
           break;
 
@@ -544,8 +732,15 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           enhanceBtn.classList.remove('enhancing');
           input.focus();
           break;
+
+        case 'contextFiles':
+          showContextPopup(msg.files || []);
+          break;
       }
     });
+
+    // Signal to extension that webview script is ready to receive messages
+    vscode.postMessage({ type: 'webviewReady' });
   </script>
 </body>
 </html>`;

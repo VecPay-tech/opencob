@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ChatPanelProvider } from './chat/chat-panel-provider.js';
 import { InlineCompletionProvider } from './completion/inline-completion-provider.js';
 import { FindingsProvider, type Finding } from './findings/findings-provider.js';
+
 import { EEClient } from './enterprise/ee-client.js';
 import {
   ModeEngine,
@@ -211,6 +212,65 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const chatProvider = new ChatPanelProvider(context.extensionUri, agentLoop, modeEngine);
 
+  // Model type classifier — used to filter models into chat/completion vs embedding
+  const EMBEDDING_PATTERNS = /embed|embedding|nomic-embed|mxbai-embed|text-embedding|bge-|e5-/i;
+  const SKIP_PATTERNS = /whisper|tts|dall-e|image-gen|canary|rerank/i;
+  function isEmbeddingModel(name: string): boolean {
+    return EMBEDDING_PATTERNS.test(name);
+  }
+  function isChatModel(name: string): boolean {
+    return !isEmbeddingModel(name) && !SKIP_PATTERNS.test(name);
+  }
+
+  /** Write discovered models into the extension's package.json enum fields so settings show dropdowns */
+  async function updateModelEnums(allModels: string[]): Promise<void> {
+    try {
+      const extPath = context.extensionPath;
+      const pkgPath = path.join(extPath, 'package.json');
+      const raw = await require('fs').promises.readFile(pkgPath, 'utf-8');
+      const pkg = JSON.parse(raw);
+
+      const chatModels = allModels.filter((m) => isChatModel(m));
+      const embeddingModels = allModels.filter((m) => isEmbeddingModel(m));
+
+      // Navigate to configuration properties and set enums
+      const configs: any[] = pkg.contributes?.configuration;
+      if (!configs) return;
+
+      for (const section of configs) {
+        const props = section.properties;
+        if (!props) continue;
+        if (props['OpenCob.model.chat'] && chatModels.length > 0) {
+          props['OpenCob.model.chat'].enum = chatModels;
+        }
+        if (props['OpenCob.model.completion'] && chatModels.length > 0) {
+          props['OpenCob.model.completion'].enum = chatModels;
+        }
+        if (props['OpenCob.model.embedding'] && embeddingModels.length > 0) {
+          props['OpenCob.model.embedding'].enum = embeddingModels;
+        }
+      }
+
+      await require('fs').promises.writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
+    } catch {
+      // Non-critical — settings will still work as text fields
+    }
+  }
+
+  // Load persisted models from previous test connection so Chat dropdown is populated immediately
+  const cachedModels = context.globalState.get<string[]>('cachedModels', []);
+  if (cachedModels.length > 0) {
+    chatProvider.setAvailableModels(cachedModels, llmAdapter.getChatModel());
+    // Ensure settings dropdowns are populated from cache
+    void updateModelEnums(cachedModels);
+  } else {
+    // No cached list yet — at minimum show the configured model name
+    const currentChat = llmAdapter.getChatModel();
+    if (currentChat) {
+      chatProvider.setAvailableModels([currentChat], currentChat);
+    }
+  }
+
   // Auto-detect models from provider on startup
   (async () => {
     // Small delay to let webview resolve
@@ -229,6 +289,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
       const models = await llmAdapter.listModels();
       chatProvider.setConnectionStatus(true, provider, models.length);
+      chatProvider.setAvailableModels(models, llmAdapter.getChatModel());
+
+      // Persist for next reload
+      await context.globalState.update('cachedModels', models);
+
+      // Update package.json enum so settings show dropdowns
+      await updateModelEnums(models);
 
       if (models.length === 0) return;
 
@@ -320,10 +387,11 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const models = await llmAdapter.listModels();
+      const chatModels = models.filter((m) => !isEmbeddingModel(m));
       const currentChat = llmAdapter.getChatModel();
-      const items = models.map((m) => ({
+      const items = chatModels.map((m) => ({
         label: m,
-        description: m === currentChat ? '(current chat model)' : '',
+        description: m === currentChat ? '(current)' : '',
       }));
       const selected = await vscode.window.showQuickPick(items, {
         placeHolder: `Select chat model (${provider}) — current: ${currentChat}`,
@@ -333,6 +401,9 @@ export function activate(context: vscode.ExtensionContext): void {
         llmAdapter.setChatModel(selected.label);
         statusBarItem.text = `$(hubot) ${selected.label}`;
         chatProvider.setModel(selected.label);
+        await vscode.workspace
+          .getConfiguration('OpenCob')
+          .update('model.chat', selected.label, vscode.ConfigurationTarget.Global);
         vscode.window.showInformationMessage(`OpenCob: Chat model → ${selected.label}`);
       }
     }),
@@ -347,10 +418,11 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const models = await llmAdapter.listModels();
+      const completionModels = models.filter((m) => !isEmbeddingModel(m));
       const currentCompletion = llmAdapter.getCompletionModel();
-      const items = models.map((m) => ({
+      const items = completionModels.map((m) => ({
         label: m,
-        description: m === currentCompletion ? '(current completion model)' : '',
+        description: m === currentCompletion ? '(current)' : '',
       }));
       const selected = await vscode.window.showQuickPick(items, {
         placeHolder: `Select completion model (${provider}) — current: ${currentCompletion}`,
@@ -358,8 +430,53 @@ export function activate(context: vscode.ExtensionContext): void {
       });
       if (selected) {
         llmAdapter.setCompletionModel(selected.label);
+        await vscode.workspace
+          .getConfiguration('OpenCob')
+          .update('model.completion', selected.label, vscode.ConfigurationTarget.Global);
         vscode.window.showInformationMessage(`OpenCob: Completion model → ${selected.label}`);
       }
+    }),
+
+    // Model picker — Embedding model
+    vscode.commands.registerCommand('OpenCob.selectEmbeddingModel', async () => {
+      const available = await llmAdapter.isAvailable();
+      if (!available) {
+        vscode.window.showErrorMessage(
+          `OpenCob: ${provider === 'ollama' ? 'Ollama is not running. Start it with: ollama serve' : 'LLM provider is not reachable. Check your settings.'}`,
+        );
+        return;
+      }
+      const models = await llmAdapter.listModels();
+      const embeddingModels = models.filter((m) => isEmbeddingModel(m));
+      const currentEmbedding = config.get<string>('model.embedding', 'nomic-embed-text');
+      if (embeddingModels.length === 0) {
+        vscode.window.showInformationMessage(
+          `OpenCob: No embedding models found on ${provider}. All ${models.length} models appear to be chat/completion models.`,
+        );
+        return;
+      }
+      const items = embeddingModels.map((m) => ({
+        label: m,
+        description: m === currentEmbedding ? '(current)' : '',
+      }));
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: `Select embedding model (${provider}) — current: ${currentEmbedding}`,
+        matchOnDescription: true,
+      });
+      if (selected) {
+        await vscode.workspace
+          .getConfiguration('OpenCob')
+          .update('model.embedding', selected.label, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(`OpenCob: Embedding model → ${selected.label}`);
+      }
+    }),
+
+    // Switch model from chat panel dropdown (no QuickPick, direct switch)
+    vscode.commands.registerCommand('OpenCob.switchModelTo', (model: string) => {
+      if (!model) return;
+      llmAdapter.setChatModel(model);
+      statusBarItem.text = `$(hubot) ${model}`;
+      chatProvider.setModel(model);
     }),
 
     // Test connection to the configured provider
@@ -402,8 +519,14 @@ export function activate(context: vscode.ExtensionContext): void {
           // Connection OK — now try listing models
           const models = await llmAdapter.listModels();
           chatProvider.setConnectionStatus(true, provider, models.length);
+          chatProvider.setAvailableModels(models, llmAdapter.getChatModel());
           statusBarItem.text = `$(hubot) ${llmAdapter.getChatModel()}`;
           statusBarItem.command = 'OpenCob.selectModel';
+
+          // Persist and update settings dropdowns
+          await context.globalState.update('cachedModels', models);
+          await updateModelEnums(models);
+
           const chatModel = llmAdapter.getChatModel();
           const completionModel = llmAdapter.getCompletionModel();
 
@@ -442,6 +565,11 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         },
       );
+    }),
+
+    // Open VS Code settings filtered to OpenCob
+    vscode.commands.registerCommand('OpenCob.openSettings', () => {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'OpenCob');
     }),
 
     // Undo last turn (F20 / F6.4)

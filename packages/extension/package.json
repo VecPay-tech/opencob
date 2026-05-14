@@ -50,8 +50,20 @@
         "title": "OpenCob: Select Completion Model"
       },
       {
+        "command": "OpenCob.selectEmbeddingModel",
+        "title": "OpenCob: Select Embedding Model"
+      },
+      {
+        "command": "OpenCob.switchModelTo",
+        "title": "OpenCob: Switch Active Model"
+      },
+      {
         "command": "OpenCob.testConnection",
         "title": "OpenCob: Test Provider Connection"
+      },
+      {
+        "command": "OpenCob.openSettings",
+        "title": "OpenCob: Open Settings"
       },
       {
         "command": "OpenCob.undoLastTurn",
@@ -110,6 +122,11 @@
         "title": "Provider",
         "order": 1,
         "properties": {
+          "OpenCob.connection.test": {
+            "type": "null",
+            "order": 0,
+            "markdownDescription": "### 🔌 Connection\n\n[▶ Test Connection](command:OpenCob.testConnection) — verify provider is reachable and list available models\n\n[⚙ Open Full Settings](command:OpenCob.openSettings)"
+          },
           "OpenCob.model.provider": {
             "type": "string",
             "default": "ollama",
@@ -142,21 +159,47 @@
         "properties": {
           "OpenCob.model.chat": {
             "type": "string",
-            "default": "qwen2.5-coder:7b",
+            "default": "azure/gpt-5-chat",
             "order": 1,
-            "markdownDescription": "Model for **chat interactions** (agentic coding, Q&A, refactoring).\n\nClick the model name in the status bar or run `OpenCob: Select Model` to browse available models.\n\n**Examples by provider:**\n| Provider | Models |\n|----------|--------|\n| Ollama | `qwen2.5-coder:7b`, `deepseek-coder:6.7b` |\n| LiteLLM | `azure/gpt-5-mini-EU`, `anthropic-vertex-claude-sonnet-4-5` |\n| OpenAI | `gpt-4o`, `o1`, `gpt-5` |\n| Anthropic | `claude-sonnet-4-5-20250514` |\n| Gemini | `gemini-2.5-flash`, `gemini-2.5-pro` |"
+            "enum": [
+              "azure/gpt-5-nano-EU",
+              "azure/gpt-5",
+              "azure/gpt-5-mini-EU",
+              "azure/gpt-5-chat",
+              "azure/gpt-5.1-EU",
+              "azure/gpt-5.4",
+              "azure/gpt-5.3-chat",
+              "azure/gpt-5.4-nano",
+              "azure/gpt-5.4-mini"
+            ],
+            "markdownDescription": "Model for **chat interactions** (agentic coding, Q&A, refactoring).\n\n[↻ Refresh Models](command:OpenCob.testConnection) _(re-fetches from provider)_"
           },
           "OpenCob.model.completion": {
             "type": "string",
-            "default": "qwen2.5-coder:1.5b",
+            "default": "azure/gpt-5.4-nano",
             "order": 2,
-            "markdownDescription": "Model for **inline code completion** (FIM / ghost text). Should be a fast, small model for low latency.\n\n**Examples by provider:**\n| Provider | Models |\n|----------|--------|\n| Ollama | `qwen2.5-coder:1.5b`, `starcoder2:3b` |\n| LiteLLM | `azure/gpt-5-nano-EU` |\n| OpenAI | `gpt-4o-mini` |\n| Anthropic | `claude-haiku-4-5-20250514` |\n| Gemini | `gemini-2.5-flash` |"
+            "enum": [
+              "azure/gpt-5-nano-EU",
+              "azure/gpt-5",
+              "azure/gpt-5-mini-EU",
+              "azure/gpt-5-chat",
+              "azure/gpt-5.1-EU",
+              "azure/gpt-5.4",
+              "azure/gpt-5.3-chat",
+              "azure/gpt-5.4-nano",
+              "azure/gpt-5.4-mini"
+            ],
+            "markdownDescription": "Model for **inline code completion** (FIM / ghost text). Should be a fast, small model.\n\n[↻ Refresh Models](command:OpenCob.testConnection) _(re-fetches from provider)_"
           },
           "OpenCob.model.embedding": {
             "type": "string",
-            "default": "nomic-embed-text",
+            "default": "azure/text-embedding-ada-002",
             "order": 3,
-            "markdownDescription": "Model for **text embeddings** (workspace indexing & semantic search).\n\n**Examples:** `nomic-embed-text`, `text-embedding-3-small`, `mxbai-embed-large`"
+            "enum": [
+              "azure/text-embedding-ada-002",
+              "azure/text-embedding-3-large"
+            ],
+            "markdownDescription": "Model for **text embeddings** (workspace indexing & semantic search).\n\n[↻ Refresh Models](command:OpenCob.testConnection) _(re-fetches from provider)_"
           }
         }
       },
