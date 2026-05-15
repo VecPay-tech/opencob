@@ -1,6 +1,7 @@
 import type {
   LlmAdapter,
   ChatMessage,
+  ChatOptions,
   StreamChunk,
   CompletionRequest,
   CompletionResponse,
@@ -65,7 +66,7 @@ export class ModelRouter {
   chat(
     messages: ChatMessage[],
     task: TaskType = 'chat',
-    options?: { temperature?: number; maxTokens?: number },
+    options?: ChatOptions,
   ): AsyncIterable<StreamChunk> {
     const adapter = this.getAdapterForTask(task);
     return adapter.chat(messages, options);

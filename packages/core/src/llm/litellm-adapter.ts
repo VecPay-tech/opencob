@@ -1,6 +1,7 @@
 import type {
   LlmAdapter,
   ChatMessage,
+  ChatOptions,
   StreamChunk,
   CompletionRequest,
   CompletionResponse,
@@ -92,14 +93,37 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
     return h;
   }
 
-  async *chat(
-    messages: ChatMessage[],
-    options?: { temperature?: number; maxTokens?: number },
-  ): AsyncIterable<StreamChunk> {
+  async *chat(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<StreamChunk> {
     const url = `${this.config.baseUrl}/v1/chat/completions`;
+    const hasTools = options?.tools && options.tools.length > 0;
+
+    const mappedMessages = messages.map((m) => {
+      const msg: Record<string, unknown> = { role: m.role };
+      // Assistant messages with tool_calls: set content to null if empty, include tool_calls
+      if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+        msg.content = m.content || null;
+        msg.tool_calls = m.toolCalls;
+      } else if (m.role === 'tool') {
+        // Tool result messages
+        msg.content = m.content;
+        if (m.toolCallId) msg.tool_call_id = m.toolCallId;
+      } else {
+        msg.content = m.content;
+      }
+      return msg;
+    });
+
+    // When tools are provided, use non-streaming to get reliable tool_calls
+    // (LiteLLM proxy doesn't relay delta.tool_calls in streaming mode)
+    if (hasTools) {
+      yield* this.chatWithTools(url, mappedMessages, options!);
+      return;
+    }
+
+    // Streaming path (no tools) for smooth text output
     const body: Record<string, unknown> = {
       model: this.config.chatModel,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: mappedMessages,
       stream: true,
       temperature: options?.temperature ?? 0.7,
       max_tokens: options?.maxTokens ?? 4096,
@@ -156,6 +180,90 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
         }
       }
     }
+  }
+
+  /**
+   * Non-streaming chat with tools — reliable tool_calls parsing.
+   * Text content is yielded as a single chunk, tool calls as structured events.
+   */
+  private async *chatWithTools(
+    url: string,
+    mappedMessages: Record<string, unknown>[],
+    options: ChatOptions,
+  ): AsyncIterable<StreamChunk> {
+    const body: Record<string, unknown> = {
+      model: this.config.chatModel,
+      messages: mappedMessages,
+      stream: false,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 4096,
+    };
+
+    if (options.tools && options.tools.length > 0) {
+      body.tools = options.tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+      }));
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      yield { type: 'error', error: `${this.name} error: ${response.status} ${text}` };
+      return;
+    }
+
+    const result = (await response.json()) as Record<string, unknown>;
+    const choice = (
+      result as { choices?: Array<{ message?: Record<string, unknown>; finish_reason?: string }> }
+    ).choices?.[0];
+
+    if (!choice) {
+      yield { type: 'error', error: 'No choice in response' };
+      return;
+    }
+
+    const message = choice.message as
+      | {
+          content?: string;
+          tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+        }
+      | undefined;
+
+    // Yield text content if any
+    if (message?.content) {
+      yield { type: 'text', text: message.content };
+    }
+
+    // Yield tool calls if any
+    if (message?.tool_calls && message.tool_calls.length > 0) {
+      for (const tc of message.tool_calls) {
+        try {
+          const params = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+          yield {
+            type: 'tool_call',
+            toolCall: { name: tc.function.name, parameters: params },
+            toolCallId: tc.id,
+          };
+        } catch {
+          yield {
+            type: 'error',
+            error: `Failed to parse tool call arguments for ${tc.function.name}`,
+          };
+        }
+      }
+    }
+
+    yield { type: 'done' };
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {

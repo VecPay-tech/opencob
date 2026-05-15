@@ -28,7 +28,7 @@ export class OllamaAdapter implements LlmAdapter {
 
   async *chat(
     messages: ChatMessage[],
-    options?: { temperature?: number; maxTokens?: number },
+    options?: { temperature?: number; maxTokens?: number; tools?: unknown[] },
   ): AsyncIterable<StreamChunk> {
     const url = `${this.config.baseUrl}/api/chat`;
     const body = {

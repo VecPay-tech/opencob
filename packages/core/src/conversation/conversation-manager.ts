@@ -125,6 +125,16 @@ export class ConversationManager {
     return deleted;
   }
 
+  /** Rename a conversation title */
+  rename(id: string, title: string): Conversation {
+    const conv = this.conversations.get(id);
+    if (!conv) throw new Error(`Conversation not found: ${id}`);
+    conv.title = title.trim() || 'New Conversation';
+    conv.updatedAt = Date.now();
+    this.saveToDisk();
+    return conv;
+  }
+
   private loadFromDisk(): void {
     if (!this.persistencePath) return;
 

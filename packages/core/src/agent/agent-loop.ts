@@ -238,12 +238,16 @@ export class AgentLoop {
       // Redact secrets before sending to LLM
       const redactedMessages = this.redactionEngine.redactMessages(messages);
 
+      // Get tool definitions for native function calling
+      const toolDefs = this.toolRegistry.getToolDefinitions();
+
       // Stream LLM response
       let fullResponse = '';
       let pendingToolCall: { name: string; parameters: Record<string, unknown> } | null = null;
+      let pendingToolCallId = '';
 
       try {
-        for await (const chunk of this.llm.chat(redactedMessages)) {
+        for await (const chunk of this.llm.chat(redactedMessages, { tools: toolDefs })) {
           switch (chunk.type) {
             case 'text':
               if (chunk.text) {
@@ -255,6 +259,7 @@ export class AgentLoop {
             case 'tool_call':
               if (chunk.toolCall) {
                 pendingToolCall = chunk.toolCall;
+                pendingToolCallId = chunk.toolCallId ?? `call_${rounds}`;
                 yield { type: 'tool_call', toolCall: chunk.toolCall };
               }
               break;
@@ -290,12 +295,20 @@ export class AgentLoop {
       }
 
       // Save the assistant's response (including the tool call intent)
-      if (fullResponse) {
-        this.conversationManager.addMessage({
-          role: 'assistant',
-          content: fullResponse,
-        });
-      }
+      this.conversationManager.addMessage({
+        role: 'assistant',
+        content: fullResponse || '',
+        toolCalls: [
+          {
+            id: pendingToolCallId,
+            type: 'function',
+            function: {
+              name: pendingToolCall.name,
+              arguments: JSON.stringify(pendingToolCall.parameters),
+            },
+          },
+        ],
+      });
 
       // Capture file snapshot before modification (for undo support)
       if (this.snapshotManager && pendingToolCall) {
@@ -356,7 +369,7 @@ export class AgentLoop {
           role: 'tool',
           content: `[SELF-CORRECTION] The command failed. Here is the error output:\n${result.content}\n\nPlease diagnose the error and fix the issue. This is self-correction attempt ${selfCorrectionAttempts} of ${maxCorrections}.`,
           name: pendingToolCall.name,
-          toolCallId: `correction_${rounds}`,
+          toolCallId: pendingToolCallId,
         });
 
         continue; // Continue the loop — LLM will see the error and try to fix
@@ -367,7 +380,7 @@ export class AgentLoop {
         role: 'tool',
         content: result.content,
         name: pendingToolCall.name,
-        toolCallId: `call_${rounds}`,
+        toolCallId: pendingToolCallId,
       });
 
       // Continue the loop — the LLM will see the tool result and either respond or call another tool
@@ -537,44 +550,20 @@ export class AgentLoop {
 
   private buildSystemPrompt(): string {
     const mode = this.modeEngine.getActive();
-    const tools = this.toolRegistry.listAvailable();
-
-    const toolDocs = tools
-      .map((t) => {
-        const params = t.parameters
-          .map(
-            (p) => `  - ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`,
-          )
-          .join('\n');
-        return `### ${t.name}\n${t.description}\nParameters:\n${params}`;
-      })
-      .join('\n\n');
 
     return [
       mode.roleDefinition,
       '',
       mode.customInstructions || '',
       '',
-      '## Available Tools',
-      '',
-      toolDocs || 'No tools available in this mode.',
-      '',
-      '## Tool Usage',
-      '',
-      'When you need to use a tool, respond with a JSON tool call in this format:',
-      '```json',
-      '{"tool": "tool_name", "parameters": {"param1": "value1"}}',
-      '```',
-      '',
-      'Wait for the tool result before continuing. Do not guess tool results.',
-      'If a tool call fails, diagnose the error and try a different approach.',
-      '',
       '## Guidelines',
       '',
       '- Be concise and direct in your responses.',
+      '- Use the available tools to accomplish tasks. Call tools rather than describing what you would do.',
       '- When modifying files, use apply_diff for targeted changes and write_to_file for new files.',
       '- Always read a file before modifying it.',
       '- Explain what you are doing and why before making changes.',
+      '- If a tool call fails, diagnose the error and try a different approach.',
     ].join('\n');
   }
 

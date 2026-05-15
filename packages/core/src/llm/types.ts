@@ -3,6 +3,24 @@ export interface ChatMessage {
   content: string;
   toolCallId?: string;
   name?: string;
+  /** OpenAI-format tool_calls on assistant messages that initiated a tool call */
+  toolCalls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ChatOptions {
+  temperature?: number;
+  maxTokens?: number;
+  tools?: ToolDefinition[];
 }
 
 export interface StreamChunk {
@@ -12,6 +30,7 @@ export interface StreamChunk {
     name: string;
     parameters: Record<string, unknown>;
   };
+  toolCallId?: string;
   error?: string;
 }
 
@@ -31,10 +50,7 @@ export interface CompletionResponse {
 export interface LlmAdapter {
   readonly name: string;
 
-  chat(
-    messages: ChatMessage[],
-    options?: { temperature?: number; maxTokens?: number },
-  ): AsyncIterable<StreamChunk>;
+  chat(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<StreamChunk>;
 
   complete(request: CompletionRequest): Promise<CompletionResponse>;
 

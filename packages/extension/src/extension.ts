@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { ChatPanelProvider } from './chat/chat-panel-provider.js';
 import { InlineCompletionProvider } from './completion/inline-completion-provider.js';
 import { FindingsProvider, type Finding } from './findings/findings-provider.js';
+import { ActivityPanelProvider } from './activity/activity-panel-provider.js';
 
 import { EEClient } from './enterprise/ee-client.js';
 import {
@@ -120,10 +121,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const workspaceIndexer = new WorkspaceIndexer(workspaceRoot, fileFilter);
   const ragPipeline = new RAGPipeline();
 
-  // Initialize Findings Provider for TreeView
+  // Initialize Findings Provider for TreeView (legacy, kept for scanner)
   const findingsProvider = new FindingsProvider(context);
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('OpenCob.findings', findingsProvider),
+  );
+
+  // Initialize Activity & Insights Panel (modern replacement for Findings tab)
+  const activityProvider = new ActivityPanelProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('OpenCob.activity', activityProvider),
   );
 
   // Initialize Model Router (F9)
@@ -138,22 +145,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const toolRegistry = new ToolRegistry(modeEngine, {
     approvalCallback: async (tool, params) => {
-      const serialized = JSON.stringify(params, null, 2);
-      const preview = serialized.length > 600 ? `${serialized.slice(0, 600)}\n...` : serialized;
-      const decision = await vscode.window.showWarningMessage(
-        `OpenCob requests approval for ${tool.name}.`,
-        {
-          modal: true,
-          detail: `Tool group: ${tool.group}\n\nParameters:\n${preview}`,
-        },
-        'Approve',
-        'Reject',
-      );
-      return decision === 'Approve';
+      // Show inline approval card in chat panel (Copilot-style)
+      return chatProvider.requestToolApproval(tool.name, tool.group, params);
     },
     fileFilter: fileFilter.getFilterFn(),
     autoApprove: {
-      read: config.get<boolean>('autoApprove.read', false),
+      read: config.get<boolean>('autoApprove.read', true),
       edit: config.get<boolean>(
         'autoApprove.edit',
         config.get<boolean>('autoApprove.write', false),
@@ -210,7 +207,16 @@ export function activate(context: vscode.ExtensionContext): void {
     inlineCompletionProvider,
   );
 
-  const chatProvider = new ChatPanelProvider(context.extensionUri, agentLoop, modeEngine);
+  const chatProvider = new ChatPanelProvider(
+    context.extensionUri,
+    agentLoop,
+    modeEngine,
+    conversationManager,
+  );
+  chatProvider.setToolRegistry(toolRegistry);
+  chatProvider.onActivity((entry) => {
+    activityProvider.addActivity(entry as any);
+  });
 
   // Model type classifier — used to filter models into chat/completion vs embedding
   const EMBEDDING_PATTERNS = /embed|embedding|nomic-embed|mxbai-embed|text-embedding|bge-|e5-/i;
@@ -645,6 +651,21 @@ export function activate(context: vscode.ExtensionContext): void {
       ragPipeline.reindexFile(relPath, workspaceIndexer.getFileChunks(relPath));
       ragPipeline.trackRecentEdit(relPath);
 
+      // Track edit in activity panel
+      activityProvider.addActivity({
+        type: 'file_edit',
+        title: `File saved: ${relPath}`,
+        file: relPath,
+      });
+
+      // Update workspace stats with recent edits
+      const status = workspaceIndexer.getStatus();
+      activityProvider.updateStats({
+        totalFiles: status.totalFiles,
+        indexedFiles: status.indexedFiles,
+        recentEdits: ragPipeline.getRecentEdits?.() || [relPath],
+      });
+
       // Wire findings to the TreeView provider
       context.subscriptions.push(
         vscode.commands.registerCommand('OpenCob.showFindings', () => {
@@ -694,6 +715,19 @@ export function activate(context: vscode.ExtensionContext): void {
     // Feed chunks to RAG pipeline
     ragPipeline.indexChunks(workspaceIndexer.getAllChunks());
     console.log(`[OpenCob] Workspace indexed: ${workspaceIndexer.getStatus().indexedFiles} files`);
+
+    // Feed workspace stats to activity panel
+    const idxStatus = workspaceIndexer.getStatus();
+    const langMap: Record<string, number> = {};
+    for (const chunk of workspaceIndexer.getAllChunks()) {
+      const ext = (chunk.filePath || '').split('.').pop() || 'other';
+      langMap[ext] = (langMap[ext] || 0) + 1;
+    }
+    activityProvider.updateStats({
+      totalFiles: idxStatus.totalFiles,
+      indexedFiles: idxStatus.indexedFiles,
+      languages: langMap,
+    });
   });
 
   // Literate Coding command (F18)
@@ -809,6 +843,28 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.command = 'OpenCob.selectModel';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+
+  // Mode indicator in status bar
+  const modeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  const activeMode = modeEngine.getActive();
+  modeStatusBar.text = `$(symbol-event) ${activeMode.name}`;
+  modeStatusBar.tooltip = 'OpenCob Mode — Click to cycle (Ctrl+.)';
+  modeStatusBar.command = 'OpenCob.cycleMode';
+  modeStatusBar.show();
+  context.subscriptions.push(modeStatusBar);
+
+  // Command: Cycle Mode
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.cycleMode', () => {
+      const modes = modeEngine.listModes();
+      const current = modeEngine.getActive();
+      const idx = modes.findIndex((m) => m.slug === current.slug);
+      const next = modes[(idx + 1) % modes.length];
+      modeEngine.setActive(next.slug);
+      modeStatusBar.text = `$(symbol-event) ${next.name}`;
+      chatProvider.setMode(next.slug);
+    }),
+  );
 
   // Disconnect MCP servers on deactivation
   context.subscriptions.push({

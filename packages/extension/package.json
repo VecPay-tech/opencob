@@ -111,9 +111,15 @@
           "name": "Chat"
         },
         {
+          "type": "webview",
+          "id": "OpenCob.activity",
+          "name": "Activity & Insights"
+        },
+        {
           "type": "tree",
           "id": "OpenCob.findings",
-          "name": "Findings"
+          "name": "Findings",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -368,7 +374,7 @@
           },
           "OpenCob.autoApprove.read": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "order": 2,
             "markdownDescription": "Auto-approve **read** tool calls (file reads, searches) without prompting."
           },
