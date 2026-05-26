@@ -96,12 +96,27 @@ describe('PromptEnhancer', () => {
     expect(result).toBe('fix bug');
   });
 
+  it('returns prompts under 20 chars unchanged regardless of LLM', async () => {
+    const enhancer = new PromptEnhancer(new MockLlm('should not be used'));
+    const result = await enhancer.enhance('short');
+    expect(result).toBe('short');
+  });
+
   it('enhances longer prompts via LLM', async () => {
     const enhanced =
       'Please refactor the authentication module to use JWT tokens instead of session cookies.';
     const enhancer = new PromptEnhancer(new MockLlm(enhanced));
     const result = await enhancer.enhance('refactor the auth module to use jwt tokens');
     expect(result).toBe(enhanced);
+  });
+
+  it('passes mode context to the LLM', async () => {
+    const enhancer = new PromptEnhancer(new MockLlm('enhanced with mode'));
+    const result = await enhancer.enhance('refactor the code please now', {
+      mode: 'code',
+      recentFiles: ['src/app.ts'],
+    });
+    expect(result).toBe('enhanced with mode');
   });
 
   it('falls back to original on LLM error', async () => {
@@ -114,5 +129,45 @@ describe('PromptEnhancer', () => {
     const original = 'some prompt that is long enough to enhance';
     const result = await enhancer.enhance(original);
     expect(result).toBe(original);
+  });
+
+  it('falls back to original when LLM returns empty', async () => {
+    const emptyLlm = new MockLlm();
+    emptyLlm.chat = async function* () {
+      yield { type: 'text' as const, text: '   ' };
+      yield { type: 'done' as const };
+    };
+
+    const enhancer = new PromptEnhancer(emptyLlm);
+    const original = 'some prompt that is long enough to enhance';
+    const result = await enhancer.enhance(original);
+    expect(result).toBe(original);
+  });
+});
+
+describe('ConversationCompactor - fallback summary', () => {
+  it('uses fallback summary when LLM throws', async () => {
+    const errorLlm = new MockLlm();
+    errorLlm.chat = async function* () {
+      throw new Error('LLM down');
+    };
+
+    const compactor = new ConversationCompactor(errorLlm, {
+      triggerThreshold: 50,
+      keepRecentMessages: 1,
+    });
+
+    const messages: ChatMessage[] = [
+      { role: 'user', content: 'First question about auth' },
+      { role: 'assistant', content: 'Auth uses JWT' },
+      { role: 'tool', content: 'file contents', name: 'read_file' },
+      { role: 'user', content: 'Recent message' },
+    ];
+
+    const compacted = await compactor.compact(messages);
+    expect(compacted).toHaveLength(2); // summary + 1 recent
+    expect(compacted[0].content).toContain('Conversation Summary');
+    expect(compacted[0].content).toContain('messages compacted');
+    expect(compacted[0].content).toContain('read_file');
   });
 });

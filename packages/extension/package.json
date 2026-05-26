@@ -23,6 +23,33 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "opencob.chat",
+        "fullName": "OpenCob",
+        "name": "opencob",
+        "description": "Privacy-first AI coding assistant — legacy-ready, agentic workflows, local inference",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "plan",
+            "description": "Create a step-by-step plan for a complex task"
+          },
+          {
+            "name": "analyze",
+            "description": "Analyze code structure, dependencies, or quality"
+          },
+          {
+            "name": "modernize",
+            "description": "Modernize legacy COBOL/RPG/PL-I code"
+          },
+          {
+            "name": "diagram",
+            "description": "Generate architecture or flow diagrams"
+          }
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "OpenCob.openChat",
@@ -92,19 +119,79 @@
       {
         "command": "OpenCob.disconnectEnterprise",
         "title": "OpenCob: Disconnect from Enterprise Server"
+      },
+      {
+        "command": "OpenCob.generateDiagram",
+        "title": "OpenCob: Generate Diagram",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "OpenCob.togglePanel",
+        "title": "OpenCob: Toggle Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "OpenCob.inlineEdit",
+        "title": "OpenCob: Inline Edit"
+      },
+      {
+        "command": "OpenCob.inlineEditAccept",
+        "title": "OpenCob: Accept Inline Edit"
+      },
+      {
+        "command": "OpenCob.inlineEditDiscard",
+        "title": "OpenCob: Discard Inline Edit"
+      },
+      {
+        "command": "OpenCob.quickChat",
+        "title": "OpenCob: Quick Chat"
+      },
+      {
+        "command": "OpenCob.cycleMode",
+        "title": "OpenCob: Cycle Mode"
+      },
+      {
+        "command": "OpenCob.literateCoding",
+        "title": "OpenCob: Literate Coding"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "OpenCob.generateDiagram",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "group": "navigation"
+        },
+        {
+          "command": "OpenCob.togglePanel",
+          "group": "navigation@100",
+          "when": "true"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "OpenCob.generateDiagram",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "group": "OpenCob"
+        },
+        {
+          "command": "OpenCob.inlineEdit",
+          "when": "editorHasSelection",
+          "group": "OpenCob"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "opencob",
+          "id": "opencob-sidebar",
           "title": "OpenCob",
           "icon": "resources/icon-activitybar.svg"
         }
       ]
     },
     "views": {
-      "opencob": [
+      "opencob-sidebar": [
         {
           "type": "webview",
           "id": "OpenCob.chatPanel",
@@ -112,8 +199,15 @@
         },
         {
           "type": "webview",
+          "id": "OpenCob.editsPanel",
+          "name": "Edits",
+          "visibility": "collapsed"
+        },
+        {
+          "type": "webview",
           "id": "OpenCob.activity",
-          "name": "Activity & Insights"
+          "name": "Activity & Insights",
+          "visibility": "collapsed"
         },
         {
           "type": "tree",
@@ -123,6 +217,35 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "OpenCob.togglePanel",
+        "key": "ctrl+alt+i",
+        "mac": "ctrl+alt+i"
+      },
+      {
+        "command": "OpenCob.inlineEdit",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorFocus"
+      },
+      {
+        "command": "OpenCob.quickChat",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i"
+      },
+      {
+        "command": "OpenCob.newConversation",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "opencob.chatFocused"
+      },
+      {
+        "command": "OpenCob.cycleMode",
+        "key": "ctrl+.",
+        "mac": "ctrl+."
+      }
+    ],
     "configuration": [
       {
         "title": "Provider",
@@ -395,6 +518,12 @@
             "default": false,
             "order": 5,
             "markdownDescription": "Auto-approve **MCP tool** calls without prompting."
+          },
+          "OpenCob.promptEnhancement.enabled": {
+            "type": "boolean",
+            "default": false,
+            "order": 6,
+            "markdownDescription": "Enable **prompt enhancement** — uses a lightweight LLM call to refine vague prompts before the main agent inference."
           }
         }
       },

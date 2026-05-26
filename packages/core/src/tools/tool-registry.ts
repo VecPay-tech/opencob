@@ -21,6 +21,8 @@ export interface AutoApproveConfig {
   command: boolean;
   mcp: boolean;
   browser: boolean;
+  meta: boolean;
+  analysis: boolean;
 }
 
 /** Command allowlist pattern for two-stage approval (F4.7 Should) */
@@ -41,6 +43,8 @@ const DEFAULT_AUTO_APPROVE: AutoApproveConfig = {
   command: false,
   mcp: false,
   browser: false,
+  meta: true,
+  analysis: true,
 };
 
 /** Dangerous shell operators that could indicate command injection (F4.7 Should) */

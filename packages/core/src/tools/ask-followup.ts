@@ -8,7 +8,7 @@ import type { Tool, ToolResult } from './types.js';
 export function createAskFollowupTool(): Tool {
   return {
     name: 'ask_followup_question',
-    group: 'read', // always allowed — no file system access
+    group: 'meta', // always allowed — no file system access
     description:
       'Ask the user a follow-up question to gather more information before proceeding. ' +
       'Use this when the request is ambiguous or you need clarification.',

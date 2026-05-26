@@ -13,7 +13,7 @@ export function createManageTodoTool(): Tool {
 
   return {
     name: 'manage_todo',
-    group: 'read', // no file access needed
+    group: 'meta', // no file access needed
     description:
       'Manage an in-conversation task list. Add, update, or list todo items to track multi-step work.',
     parameters: [

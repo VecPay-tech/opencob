@@ -8,7 +8,7 @@ describe('ask_followup_question tool', () => {
 
   it('should have correct metadata', () => {
     expect(tool.name).toBe('ask_followup_question');
-    expect(tool.group).toBe('read');
+    expect(tool.group).toBe('meta');
     expect(tool.parameters).toHaveLength(1);
     expect(tool.parameters[0].name).toBe('question');
   });
@@ -42,7 +42,7 @@ describe('switch_mode tool', () => {
 
   it('should have correct metadata', () => {
     expect(tool.name).toBe('switch_mode');
-    expect(tool.group).toBe('read');
+    expect(tool.group).toBe('meta');
     expect(tool.parameters).toHaveLength(2);
   });
 

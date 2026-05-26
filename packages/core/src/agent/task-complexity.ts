@@ -7,6 +7,8 @@ export interface ComplexityScore {
   score: number; // 0–100
   adjustedMaxTokens: number;
   adjustedTemperature: number;
+  /** Whether to delegate to orchestrator for complex tasks */
+  shouldDelegate: boolean;
   reason: string;
 }
 
@@ -112,6 +114,7 @@ export class TaskComplexityClassifier {
         score,
         adjustedMaxTokens: 8192,
         adjustedTemperature: 0.7,
+        shouldDelegate: score >= 80,
         reason: reasons.length > 0 ? reasons.join(', ') : 'complex request',
       };
     }
@@ -121,6 +124,7 @@ export class TaskComplexityClassifier {
         score,
         adjustedMaxTokens: 4096,
         adjustedTemperature: 0.5,
+        shouldDelegate: false,
         reason: reasons.length > 0 ? reasons.join(', ') : 'moderate request',
       };
     }
@@ -129,6 +133,7 @@ export class TaskComplexityClassifier {
       score,
       adjustedMaxTokens: 2048,
       adjustedTemperature: 0.3,
+      shouldDelegate: false,
       reason: reasons.length > 0 ? reasons.join(', ') : 'simple request',
     };
   }

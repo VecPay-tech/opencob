@@ -196,6 +196,30 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
             }
           }
           break;
+        case 'planApproved':
+          outputChannel.appendLine(`[plan] Plan approved: ${message.planId}`);
+          break;
+        case 'planEdited':
+          outputChannel.appendLine(`[plan] Plan edited: ${message.planId}`);
+          break;
+        case 'planCancelled':
+          outputChannel.appendLine(`[plan] Plan cancelled: ${message.planId}`);
+          this.isProcessing = false;
+          this.view?.webview.postMessage({ type: 'responseEnd' });
+          break;
+        case 'planPaused':
+          outputChannel.appendLine(`[plan] Plan paused: ${message.planId}`);
+          break;
+        case 'planResumed':
+          outputChannel.appendLine(`[plan] Plan resumed: ${message.planId}`);
+          break;
+        case 'keepChanges':
+          outputChannel.appendLine('[changes] User accepted all changes (Keep)');
+          break;
+        case 'undoChanges':
+          outputChannel.appendLine('[changes] User undid all changes');
+          vscode.commands.executeCommand('OpenCob.undoLastTurn');
+          break;
         case 'createCustomAgent':
           if (message.agent) {
             try {
@@ -622,6 +646,64 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           });
         }
         break;
+
+      case 'phase_change':
+        this.view?.webview.postMessage({
+          type: 'phaseChange',
+          phase: event.phase,
+        });
+        this.activityCallback?.({
+          type: 'phase_change',
+          title: `Phase: ${event.phase}`,
+        });
+        break;
+
+      case 'thinking':
+        this.view?.webview.postMessage({
+          type: 'thinking',
+          text: event.thinking ?? event.text,
+        });
+        break;
+
+      case 'thinking_end':
+        this.view?.webview.postMessage({ type: 'thinkingEnd' });
+        break;
+
+      case 'plan_created':
+        this.view?.webview.postMessage({
+          type: 'planCreated',
+          plan: (event as any).plan,
+        });
+        this.activityCallback?.({
+          type: 'plan',
+          title: `Plan created: ${(event as any).plan?.goal ?? 'Unknown'}`,
+          detail: `${(event as any).plan?.steps?.length ?? 0} steps`,
+        });
+        break;
+
+      case 'plan_step_update':
+        this.view?.webview.postMessage({
+          type: 'planStepUpdate',
+          planStep: (event as any).planStep,
+        });
+        this.activityCallback?.({
+          type: 'plan_step',
+          title: `Step ${((event as any).planStep?.stepIndex ?? 0) + 1}: ${(event as any).planStep?.status}`,
+          detail: (event as any).planStep?.summary,
+        });
+        break;
+
+      case 'changes_summary':
+        this.view?.webview.postMessage({
+          type: 'changesSummary',
+          summary: (event as any).changesSummary,
+        });
+        this.activityCallback?.({
+          type: 'changes',
+          title: `${(event as any).changesSummary?.filesChanged} files changed`,
+          detail: `+${(event as any).changesSummary?.linesAdded} −${(event as any).changesSummary?.linesRemoved}`,
+        });
+        break;
     }
   }
 
@@ -822,7 +904,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       height: 100%; text-align: center; padding: 24px;
     }
-    .welcome-icon { width: 36px; height: 36px; margin-bottom: 14px; opacity: 0.3; }
+    .welcome-icon { width: 144px; height: 144px; margin-bottom: 14px; }
     .welcome h2 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
     .welcome p {
       font-size: 12px; color: var(--vscode-descriptionForeground);
@@ -1758,7 +1840,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
         <span class="drop-zone-text">Drop files to add as context</span>
       </div>
       <div class="welcome" id="welcome">
-        <svg class="welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <svg class="welcome-icon" viewBox="0 0 128 128"><rect width="128" height="128" rx="16" fill="transparent"/><rect x="40" y="76" width="48" height="32" rx="6" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.5"/><rect x="48" y="80" width="32" height="16" rx="3" fill="#0d1a0d" stroke="#33ff33" stroke-width="0.8"/><line x1="51" y1="85" x2="68" y2="85" stroke="#33ff33" stroke-width="1" opacity="0.8"/><line x1="51" y1="89" x2="75" y2="89" stroke="#33ff33" stroke-width="1" opacity="0.6"/><line x1="51" y1="93" x2="63" y2="93" stroke="#33ff33" stroke-width="1" opacity="0.7"/><rect x="58" y="70" width="12" height="7" rx="2" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><rect x="46" y="20" width="36" height="52" rx="18" fill="#2d5a00" stroke="#33ff33" stroke-width="1.5"/><path d="M46 30 Q36 38 35 50 Q37 60 43 68" fill="#1a3d00" fill-opacity="0.6" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><path d="M82 30 Q92 38 93 50 Q91 60 85 68" fill="#1a3d00" fill-opacity="0.6" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><path d="M61 20 Q60 12 58 6" fill="none" stroke="#33ff33" stroke-width="1" stroke-linecap="round" opacity="0.7"/><path d="M64 20 Q64 11 64 4" fill="none" stroke="#33ff33" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/><path d="M67 20 Q68 12 70 6" fill="none" stroke="#33ff33" stroke-width="1" stroke-linecap="round" opacity="0.7"/><rect x="53" y="35" width="10" height="8" rx="2" fill="#0d1a0d" stroke="#33ff33" stroke-width="1.2"/><rect x="56" y="37" width="4" height="4" rx="1" fill="#33ff33"/><rect x="57" y="38" width="2" height="2" fill="#88ff88"/><path d="M77 35 L70 39 L77 43" fill="none" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M57 54 Q64 61 71 54" fill="#0d1a0d" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><rect x="28" y="78" width="10" height="24" rx="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><g><animateTransform attributeName="transform" type="rotate" values="0 95 78;-20 95 78;0 95 78" dur="1s" repeatCount="indefinite"/><rect x="90" y="78" width="10" height="24" rx="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><circle cx="95" cy="78" r="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><circle cx="95" cy="104" r="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/></g><circle cx="33" cy="78" r="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><circle cx="33" cy="104" r="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><rect x="48" y="108" width="10" height="12" rx="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><rect x="70" y="108" width="10" height="12" rx="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><ellipse cx="53" cy="122" rx="8" ry="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><ellipse cx="75" cy="122" rx="8" ry="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/></svg>
         <h2>OpenCob</h2>
         <p>AI-powered COBOL analysis, refactoring, and modernization assistant.</p>
         <div class="welcome-actions">
@@ -3206,7 +3288,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           var w = document.createElement('div');
           w.className = 'welcome';
           w.id = 'welcome';
-          w.innerHTML = '<svg class="welcome-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg><h2>OpenCob</h2><p>AI-powered COBOL analysis, refactoring, and modernization assistant.</p>';
+          w.innerHTML = '<svg class="welcome-icon" viewBox="0 0 128 128"><rect width="128" height="128" rx="16" fill="transparent"/><rect x="40" y="76" width="48" height="32" rx="6" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.5"/><rect x="48" y="80" width="32" height="16" rx="3" fill="#0d1a0d" stroke="#33ff33" stroke-width="0.8"/><line x1="51" y1="85" x2="68" y2="85" stroke="#33ff33" stroke-width="1" opacity="0.8"/><line x1="51" y1="89" x2="75" y2="89" stroke="#33ff33" stroke-width="1" opacity="0.6"/><line x1="51" y1="93" x2="63" y2="93" stroke="#33ff33" stroke-width="1" opacity="0.7"/><rect x="58" y="70" width="12" height="7" rx="2" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><rect x="46" y="20" width="36" height="52" rx="18" fill="#2d5a00" stroke="#33ff33" stroke-width="1.5"/><path d="M46 30 Q36 38 35 50 Q37 60 43 68" fill="#1a3d00" fill-opacity="0.6" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><path d="M82 30 Q92 38 93 50 Q91 60 85 68" fill="#1a3d00" fill-opacity="0.6" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><path d="M61 20 Q60 12 58 6" fill="none" stroke="#33ff33" stroke-width="1" stroke-linecap="round" opacity="0.7"/><path d="M64 20 Q64 11 64 4" fill="none" stroke="#33ff33" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/><path d="M67 20 Q68 12 70 6" fill="none" stroke="#33ff33" stroke-width="1" stroke-linecap="round" opacity="0.7"/><rect x="53" y="35" width="10" height="8" rx="2" fill="#0d1a0d" stroke="#33ff33" stroke-width="1.2"/><rect x="56" y="37" width="4" height="4" rx="1" fill="#33ff33"/><rect x="57" y="38" width="2" height="2" fill="#88ff88"/><path d="M77 35 L70 39 L77 43" fill="none" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M57 54 Q64 61 71 54" fill="#0d1a0d" stroke="#33ff33" stroke-width="1.5" stroke-linecap="round"/><rect x="28" y="78" width="10" height="24" rx="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><g><animateTransform attributeName="transform" type="rotate" values="0 95 78;-20 95 78;0 95 78" dur="1s" repeatCount="indefinite"/><rect x="90" y="78" width="10" height="24" rx="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><circle cx="95" cy="78" r="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><circle cx="95" cy="104" r="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/></g><circle cx="33" cy="78" r="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1"/><circle cx="33" cy="104" r="5" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><rect x="48" y="108" width="10" height="12" rx="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><rect x="70" y="108" width="10" height="12" rx="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><ellipse cx="53" cy="122" rx="8" ry="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/><ellipse cx="75" cy="122" rx="8" ry="4" fill="#1a1a1a" stroke="#33ff33" stroke-width="1.2"/></svg><h2>OpenCob</h2><p>AI-powered COBOL analysis, refactoring, and modernization assistant.</p>';
           messagesEl.appendChild(w);
           currentAssistantEl = null;
           assistantText = '';

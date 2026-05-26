@@ -9,7 +9,7 @@ import type { Tool, ToolResult } from './types.js';
 export function createAnalyzeCodeTool(workspaceRoot: string): Tool {
   return {
     name: 'analyze_code',
-    group: 'read',
+    group: 'analysis',
     description:
       'Analyze a file for code quality: complexity, code smells, unused code, naming conventions, and improvement suggestions. Returns a composite report.',
     parameters: [

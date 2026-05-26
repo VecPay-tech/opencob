@@ -7,7 +7,7 @@ import type { SnapshotManager } from '../checkpoints/snapshot-manager.js';
 export function createUndoLastTurnTool(snapshotManager: SnapshotManager): Tool {
   return {
     name: 'undo_last_turn',
-    group: 'edit',
+    group: 'meta',
     description:
       'Roll back all file changes from the previous AI turn. Restores files to their state before the last turn.',
     parameters: [],

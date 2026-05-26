@@ -1,6 +1,6 @@
 export type ModeSlug = 'code' | 'ask' | 'plan' | 'advanced' | 'orchestrator' | string;
 
-export type ToolGroup = 'read' | 'edit' | 'command' | 'mcp' | 'browser';
+export type ToolGroup = 'read' | 'edit' | 'command' | 'mcp' | 'browser' | 'meta' | 'analysis';
 
 export interface Mode {
   slug: ModeSlug;
@@ -20,7 +20,7 @@ export const BUILT_IN_MODES: Mode[] = [
     roleDefinition:
       'You are OpenCob, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.',
     whenToUse: 'Use for writing, modifying, and refactoring code.',
-    groups: ['read', 'edit', 'command'],
+    groups: ['read', 'edit', 'command', 'mcp', 'meta'],
   },
   {
     slug: 'ask',
@@ -28,7 +28,7 @@ export const BUILT_IN_MODES: Mode[] = [
     roleDefinition:
       'You are OpenCob, a knowledgeable technical assistant focused on answering questions and providing information about software development.',
     whenToUse: 'Use for getting answers and explanations without modifying files.',
-    groups: ['read', 'mcp'],
+    groups: ['read', 'meta'],
   },
   {
     slug: 'plan',
@@ -36,7 +36,12 @@ export const BUILT_IN_MODES: Mode[] = [
     roleDefinition:
       'You are OpenCob, an experienced technical leader who is inquisitive and an excellent planner. Your goal is to gather information and create a detailed plan.',
     whenToUse: 'Use for high-level planning and technical design before implementation.',
-    groups: ['read', ['edit', { fileRegex: '\\.md$', description: 'Markdown files only' }], 'mcp'],
+    groups: [
+      'read',
+      ['edit', { fileRegex: '\\.md$', description: 'Markdown files only' }],
+      'meta',
+      'analysis',
+    ],
   },
   {
     slug: 'advanced',
@@ -44,7 +49,7 @@ export const BUILT_IN_MODES: Mode[] = [
     roleDefinition:
       'You are OpenCob, a highly skilled software engineer with extensive knowledge in many programming languages, frameworks, design patterns, and best practices.',
     whenToUse: 'Use for complex tasks requiring access to all tools.',
-    groups: ['read', 'edit', 'command', 'mcp'],
+    groups: ['read', 'edit', 'command', 'mcp', 'browser', 'meta'],
   },
   {
     slug: 'orchestrator',
@@ -52,7 +57,7 @@ export const BUILT_IN_MODES: Mode[] = [
     roleDefinition:
       'You are OpenCob, a strategic workflow orchestrator who coordinates complex tasks by delegating them to appropriate specialized modes.',
     whenToUse: 'Use for complex projects requiring coordination across different specialties.',
-    groups: [],
+    groups: ['read', 'edit', 'command', 'mcp', 'browser', 'meta', 'analysis'],
   },
 ];
 

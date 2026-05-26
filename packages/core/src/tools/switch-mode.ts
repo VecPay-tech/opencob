@@ -8,7 +8,7 @@ import { ModeEngine } from '../modes/mode-engine.js';
 export function createSwitchModeTool(modeEngine: ModeEngine): Tool {
   return {
     name: 'switch_mode',
-    group: 'read', // low risk — always allowed
+    group: 'meta', // low risk — always allowed
     description:
       'Switch to a different mode. Available modes: code, ask, plan, advanced, orchestrator. ' +
       'Use this when the current task requires a different set of capabilities.',

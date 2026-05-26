@@ -11,8 +11,21 @@ import { TaskComplexityClassifier, type ComplexityScore } from './task-complexit
 import type { SnapshotManager } from '../checkpoints/snapshot-manager.js';
 import type { RAGPipeline } from '../indexer/rag-pipeline.js';
 import type { SkillsLoader } from '../skills/skills-loader.js';
+import { OrchestratorEngine } from './orchestrator-engine.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
+
+export type AgentPhase =
+  | 'preparing'
+  | 'gathering_context'
+  | 'planning'
+  | 'reasoning'
+  | 'analysing'
+  | 'processing'
+  | 'evaluating'
+  | 'writing_code'
+  | 'verifying'
+  | 'summarizing';
 
 export interface AgentEvent {
   type:
@@ -25,7 +38,13 @@ export interface AgentEvent {
     | 'self_correction'
     | 'compaction'
     | 'verification'
-    | 'skill_activated';
+    | 'skill_activated'
+    | 'phase_change'
+    | 'thinking'
+    | 'thinking_end'
+    | 'plan_created'
+    | 'plan_step_update'
+    | 'changes_summary';
   text?: string;
   toolCall?: { name: string; parameters: Record<string, unknown> };
   toolResult?: ToolExecutionResult;
@@ -33,6 +52,20 @@ export interface AgentEvent {
   mode?: string;
   attempt?: number;
   complexity?: ComplexityScore;
+  phase?: AgentPhase;
+  thinking?: string;
+  plan?: { goal: string; steps: Array<{ id: number; description: string; mode: string }> };
+  planStep?: {
+    stepIndex: number;
+    status: 'pending' | 'running' | 'done' | 'failed';
+    summary?: string;
+  };
+  changesSummary?: {
+    filesChanged: number;
+    linesAdded: number;
+    linesRemoved: number;
+    files: Array<{ path: string; status: 'M' | 'A' | 'D' | 'R'; added: number; removed: number }>;
+  };
 }
 
 export interface AgentConfig {
@@ -71,7 +104,14 @@ export class AgentLoop {
   private ragPipeline: RAGPipeline | null;
   private skillsLoader: SkillsLoader | null;
   private customCommands: Map<string, { description: string; prompt: string }>;
+  private orchestrator: OrchestratorEngine;
   private config: AgentConfig;
+  private turnFileChanges: Array<{
+    path: string;
+    status: 'M' | 'A' | 'D' | 'R';
+    added: number;
+    removed: number;
+  }> = [];
 
   constructor(
     llm: LlmAdapter,
@@ -101,6 +141,16 @@ export class AgentLoop {
     this.ragPipeline = this.config.ragPipeline ?? null;
     this.skillsLoader = this.config.skillsLoader ?? null;
     this.customCommands = this.config.customCommands ?? new Map();
+    this.orchestrator = new OrchestratorEngine(llm, modeEngine);
+  }
+
+  /** Hot-swap the LLM adapter (e.g. when user changes provider setting) */
+  setLlmAdapter(adapter: LlmAdapter): void {
+    this.llm = adapter;
+    if (this.compactor) {
+      this.compactor = new ConversationCompactor(adapter);
+    }
+    this.orchestrator = new OrchestratorEngine(adapter, this.modeEngine);
   }
 
   /** Process a user message and yield agent events (streaming) */
@@ -141,11 +191,25 @@ export class AgentLoop {
       }
     }
 
+    // Emit preparing phase
+    yield { type: 'phase_change', phase: 'preparing' };
+
+    // Reset file changes tracking for this turn
+    this.turnFileChanges = [];
+
+    // Orchestrator mode delegation (§3.17, §8.9.4)
+    const activeMode = this.modeEngine.getActive();
+    if (activeMode.slug === 'orchestrator') {
+      yield* this.runOrchestrator(effectiveMessage);
+      return;
+    }
+
     // Add user message to conversation
     // Parse @mentions and resolve context
     let processedMessage = effectiveMessage;
     let mentionContext = '';
     if (this.mentionParser) {
+      yield { type: 'phase_change', phase: 'gathering_context' };
       const parsed = await this.mentionParser.parse(effectiveMessage);
       processedMessage = parsed.cleanText;
       mentionContext = parsed.contextBlock;
@@ -241,6 +305,9 @@ export class AgentLoop {
       // Get tool definitions for native function calling
       const toolDefs = this.toolRegistry.getToolDefinitions();
 
+      // Emit reasoning phase before LLM call
+      yield { type: 'phase_change', phase: 'reasoning' };
+
       // Stream LLM response
       let fullResponse = '';
       let pendingToolCall: { name: string; parameters: Record<string, unknown> } | null = null;
@@ -260,6 +327,7 @@ export class AgentLoop {
               if (chunk.toolCall) {
                 pendingToolCall = chunk.toolCall;
                 pendingToolCallId = chunk.toolCallId ?? `call_${rounds}`;
+                yield { type: 'phase_change', phase: 'analysing' };
                 yield { type: 'tool_call', toolCall: chunk.toolCall };
               }
               break;
@@ -290,6 +358,9 @@ export class AgentLoop {
             content: fullResponse,
           });
         }
+        // Emit changes summary if files were modified during this turn (§8.4.1.1)
+        const changeSummary = this.buildChangesSummaryEvent();
+        if (changeSummary) yield changeSummary;
         yield { type: 'done' };
         return;
       }
@@ -322,12 +393,25 @@ export class AgentLoop {
       }
 
       // Execute the tool
+      yield { type: 'phase_change', phase: 'processing' };
       const result = await this.toolRegistry.execute({
         toolName: pendingToolCall.name,
         parameters: pendingToolCall.parameters,
       });
 
+      yield { type: 'phase_change', phase: 'evaluating' };
       yield { type: 'tool_result', toolResult: result };
+
+      // Track file changes for changes summary bar (§8.4.1.1)
+      if (result.success) {
+        const writeTools = ['write_to_file', 'apply_diff', 'insert_content', 'multi_edit'];
+        if (writeTools.includes(pendingToolCall.name)) {
+          const filePath = pendingToolCall.parameters.path as string | undefined;
+          if (filePath) {
+            this.trackFileChange(filePath, result.content);
+          }
+        }
+      }
 
       // Post-edit verification (F6.4): auto-check syntax after write tools
       if (this.postEditVerifier && result.success) {
@@ -387,6 +471,8 @@ export class AgentLoop {
     }
 
     // Max rounds exceeded
+    const maxRoundsSummary = this.buildChangesSummaryEvent();
+    if (maxRoundsSummary) yield maxRoundsSummary;
     yield {
       type: 'error',
       error: `Agent reached maximum tool rounds (${this.config.maxToolRounds}). Stopping.`,
@@ -575,5 +661,138 @@ export class AgentLoop {
   /** Get current mode */
   getMode() {
     return this.modeEngine.getActive();
+  }
+
+  /** Get file changes from the current turn (§8.4.1.1) */
+  getTurnFileChanges() {
+    return this.turnFileChanges;
+  }
+
+  /** Track a file change after a successful write tool (§8.4.1.1) */
+  private trackFileChange(filePath: string, resultContent: string): void {
+    // Parse lines added/removed from result content heuristically
+    const lines = resultContent.split('\n');
+    let added = 0;
+    let removed = 0;
+    for (const line of lines) {
+      if (line.startsWith('+') && !line.startsWith('+++')) added++;
+      if (line.startsWith('-') && !line.startsWith('---')) removed++;
+    }
+    // If no diff markers, estimate from content length
+    if (added === 0 && removed === 0) {
+      added = Math.max(1, Math.ceil(resultContent.length / 80));
+    }
+
+    const existing = this.turnFileChanges.find((f) => f.path === filePath);
+    if (existing) {
+      existing.added += added;
+      existing.removed += removed;
+    } else {
+      this.turnFileChanges.push({ path: filePath, status: 'M', added, removed });
+    }
+  }
+
+  /** Emit changes summary event (§8.4.1.1) */
+  private buildChangesSummaryEvent(): AgentEvent | null {
+    if (this.turnFileChanges.length === 0) return null;
+    const totalAdded = this.turnFileChanges.reduce((s, f) => s + f.added, 0);
+    const totalRemoved = this.turnFileChanges.reduce((s, f) => s + f.removed, 0);
+    return {
+      type: 'changes_summary',
+      changesSummary: {
+        filesChanged: this.turnFileChanges.length,
+        linesAdded: totalAdded,
+        linesRemoved: totalRemoved,
+        files: [...this.turnFileChanges],
+      },
+    };
+  }
+
+  /**
+   * Orchestrator mode — decompose task into plan, emit plan_created,
+   * execute steps sequentially, emit plan_step_update per step (§3.17, §8.9.4)
+   */
+  private async *runOrchestrator(userMessage: string): AsyncIterable<AgentEvent> {
+    yield { type: 'phase_change', phase: 'planning' };
+    yield { type: 'thinking', thinking: 'Decomposing task into subtasks...' };
+
+    const plan = await this.orchestrator.decompose(userMessage);
+
+    // Emit plan_created with steps
+    yield {
+      type: 'plan_created',
+      plan: {
+        goal: plan.goal,
+        steps: plan.subtasks.map((s) => ({ id: s.id, description: s.description, mode: s.mode })),
+      },
+    };
+    yield { type: 'thinking_end' };
+
+    // Execute each subtask sequentially
+    for (const subtask of plan.subtasks) {
+      subtask.status = 'running';
+      yield {
+        type: 'plan_step_update',
+        planStep: { stepIndex: subtask.id - 1, status: 'running' },
+      };
+
+      // Switch to the subtask's mode
+      this.orchestrator.switchToMode(subtask);
+
+      // Build focused prompt with prior context
+      const subtaskPrompt = this.orchestrator.buildSubtaskPrompt(plan, subtask);
+
+      yield { type: 'phase_change', phase: 'reasoning' };
+      yield { type: 'thinking', thinking: `Working on step ${subtask.id}: ${subtask.description}` };
+
+      // Add subtask prompt to conversation and run inference
+      this.conversationManager.addMessage({ role: 'user', content: subtaskPrompt });
+
+      const systemPrompt = this.buildSystemPrompt();
+      const messages = this.conversationManager.getContextWindow(
+        systemPrompt,
+        this.config.maxContextTokens,
+      );
+      const redactedMessages = this.redactionEngine.redactMessages(messages);
+
+      let stepResult = '';
+      try {
+        for await (const chunk of this.llm.chat(redactedMessages)) {
+          if (chunk.type === 'text' && chunk.text) {
+            stepResult += chunk.text;
+            yield { type: 'text', text: chunk.text };
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        subtask.status = 'failed';
+        subtask.result = msg;
+        yield { type: 'thinking_end' };
+        yield {
+          type: 'plan_step_update',
+          planStep: { stepIndex: subtask.id - 1, status: 'failed', summary: msg },
+        };
+        continue;
+      }
+
+      subtask.status = 'done';
+      subtask.result = stepResult.slice(0, 500);
+      this.conversationManager.addMessage({ role: 'assistant', content: stepResult });
+
+      yield { type: 'thinking_end' };
+      yield {
+        type: 'plan_step_update',
+        planStep: { stepIndex: subtask.id - 1, status: 'done', summary: subtask.result },
+      };
+    }
+
+    // Restore original mode
+    this.modeEngine.setActive('orchestrator');
+
+    // Emit changes summary if any files were modified
+    const summary = this.buildChangesSummaryEvent();
+    if (summary) yield summary;
+
+    yield { type: 'done' };
   }
 }

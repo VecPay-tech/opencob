@@ -29,6 +29,37 @@ export { createUndoLastTurnTool } from './tools/undo-last-turn.js';
 export { createUseMcpTool } from './tools/use-mcp-tool.js';
 export { createAnalyzeCodeTool } from './tools/analyze-code.js';
 export { createGenerateDiagramTool } from './tools/generate-diagram.js';
+export {
+  type DiagramNode,
+  type DiagramEdge,
+  type DiagramData,
+  type DiagramType,
+  type LegacyDiagramType,
+  type ModernDiagramType,
+  type FileTypeInfo,
+  type FileCategory,
+  FILE_TYPES,
+  DIAGRAM_TYPES,
+  ALL_LEGACY_EXTS,
+  COBOL_EXTS,
+  CL_EXTS,
+  RPG_EXTS,
+  PLI_EXTS,
+  BMS_EXTS,
+  DDS_EXTS,
+  classifyExtension,
+  getAvailableDiagramTypes,
+} from './tools/diagram-types.js';
+export { parseControlFlow, parseClControlFlow, type FlowGraph } from './tools/flow-parser.js';
+export { generateDiagramFromContent } from './tools/generate-diagram.js';
+export { parseBmsMap, type BmsMapField, type BmsParseResult } from './legacy/bms-parser.js';
+export {
+  parseDds,
+  type DdsField,
+  type DdsRecord,
+  type DdsParseResult,
+  type DdsScreenMeta,
+} from './legacy/dds-parser.js';
 export { createSemanticSearchTool } from './tools/semantic-search.js';
 export { createFindReferencesTool, createShowImpactChainTool } from './tools/legacy-tools.js';
 export { createMultiEditTool } from './tools/multi-edit.js';
@@ -53,7 +84,12 @@ export {
 export { ModelRouter, type ModelRouteConfig, type TaskType } from './llm/model-router.js';
 
 // Agent
-export { AgentLoop, type AgentEvent, type AgentConfig } from './agent/agent-loop.js';
+export {
+  AgentLoop,
+  type AgentEvent,
+  type AgentConfig,
+  type AgentPhase,
+} from './agent/agent-loop.js';
 export { ConversationCompactor } from './agent/conversation-compactor.js';
 export { PromptEnhancer } from './agent/prompt-enhancer.js';
 export { PostEditVerifier, type VerificationResult } from './agent/post-edit-verifier.js';
@@ -63,6 +99,15 @@ export {
   type Subtask,
   type OrchestratorPlan,
 } from './agent/orchestrator-engine.js';
+export {
+  CustomizationLoader,
+  type AgentDefinition,
+  type InstructionFile,
+  type PromptTemplate,
+  type PromptVariable,
+  type CustomizationContext,
+  type ResolvedInstructions,
+} from './agent/customization-loader.js';
 
 // Conversation
 export {

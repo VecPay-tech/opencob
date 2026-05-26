@@ -1,4 +1,4 @@
-export type ToolGroup = 'read' | 'edit' | 'command' | 'mcp' | 'browser';
+export type ToolGroup = 'read' | 'edit' | 'command' | 'mcp' | 'browser' | 'meta' | 'analysis';
 
 export interface ToolParameter {
   name: string;

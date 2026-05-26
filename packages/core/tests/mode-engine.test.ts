@@ -30,7 +30,9 @@ describe('ModeEngine', () => {
     expect(engine.isToolGroupAllowed('read')).toBe(true);
     expect(engine.isToolGroupAllowed('edit')).toBe(true);
     expect(engine.isToolGroupAllowed('command')).toBe(true);
-    expect(engine.isToolGroupAllowed('mcp')).toBe(false);
+    expect(engine.isToolGroupAllowed('mcp')).toBe(true);
+    expect(engine.isToolGroupAllowed('meta')).toBe(true);
+    expect(engine.isToolGroupAllowed('browser')).toBe(false);
   });
 
   it('should restrict edit in plan mode to markdown', () => {
@@ -40,12 +42,14 @@ describe('ModeEngine', () => {
     expect(engine.getEditRestriction()).toBe('\\.md$');
   });
 
-  it('should have no tools in orchestrator mode', () => {
+  it('should allow all groups in orchestrator mode', () => {
     const engine = new ModeEngine();
     engine.setActive('orchestrator');
-    expect(engine.isToolGroupAllowed('read')).toBe(false);
-    expect(engine.isToolGroupAllowed('edit')).toBe(false);
-    expect(engine.isToolGroupAllowed('command')).toBe(false);
+    expect(engine.isToolGroupAllowed('read')).toBe(true);
+    expect(engine.isToolGroupAllowed('edit')).toBe(true);
+    expect(engine.isToolGroupAllowed('command')).toBe(true);
+    expect(engine.isToolGroupAllowed('meta')).toBe(true);
+    expect(engine.isToolGroupAllowed('analysis')).toBe(true);
   });
 
   it('should allow custom modes to override built-in', () => {

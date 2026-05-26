@@ -4,6 +4,10 @@ import { ChatPanelProvider } from './chat/chat-panel-provider.js';
 import { InlineCompletionProvider } from './completion/inline-completion-provider.js';
 import { FindingsProvider, type Finding } from './findings/findings-provider.js';
 import { ActivityPanelProvider } from './activity/activity-panel-provider.js';
+import { InlineEditProvider } from './inline-edit/inline-edit-provider.js';
+import { QuickChatProvider } from './chat/quick-chat-provider.js';
+import { EditsPanelProvider } from './edits/edits-panel-provider.js';
+import { registerChatParticipant } from './chat/chat-participant.js';
 
 import { EEClient } from './enterprise/ee-client.js';
 import {
@@ -43,6 +47,9 @@ import {
   createShowImpactChainTool,
   createMultiEditTool,
   createManageTodoTool,
+  generateDiagramFromContent,
+  classifyExtension,
+  getAvailableDiagramTypes,
 } from '@opencob/core';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -68,32 +75,36 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Initialize core components
   const modeEngine = new ModeEngine();
-  const config = vscode.workspace.getConfiguration('OpenCob');
-  const provider = config.get<string>('model.provider', 'ollama');
+  let config = vscode.workspace.getConfiguration('OpenCob');
+  let provider = config.get<string>('model.provider', 'ollama');
 
-  // Create the appropriate LLM adapter based on provider setting
-  let llmAdapter: OllamaAdapter | OpenAICompatibleAdapter;
-  if (provider === 'ollama') {
-    llmAdapter = new OllamaAdapter({
-      baseUrl: config.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434'),
-      chatModel: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
-      completionModel: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
-    });
-  } else {
-    // All non-Ollama providers use OpenAI-compatible protocol
-    const presets = PROVIDER_PRESETS[provider] ?? PROVIDER_PRESETS['openai-compatible'];
-    const providerSection = provider === 'openai-compatible' ? 'openaiCompatible' : provider;
-    llmAdapter = new OpenAICompatibleAdapter({
-      baseUrl: config.get<string>(`${providerSection}.baseUrl`, presets.baseUrl ?? ''),
-      apiKey: config.get<string>(`${providerSection}.apiKey`, ''),
-      chatModel: config.get<string>('model.chat', presets.chatModel ?? 'gpt-4o'),
-      completionModel: config.get<string>(
+  // Helper to create the appropriate LLM adapter based on provider setting
+  function createLlmAdapterFromConfig(): OllamaAdapter | OpenAICompatibleAdapter {
+    const cfg = vscode.workspace.getConfiguration('OpenCob');
+    const prov = cfg.get<string>('model.provider', 'ollama');
+    if (prov === 'ollama') {
+      return new OllamaAdapter({
+        baseUrl: cfg.get<string>('ollama.baseUrl', 'http://127.0.0.1:11434'),
+        chatModel: cfg.get<string>('model.chat', 'qwen2.5-coder:7b'),
+        completionModel: cfg.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
+      });
+    }
+    const presets = PROVIDER_PRESETS[prov] ?? PROVIDER_PRESETS['openai-compatible'];
+    const providerSection = prov === 'openai-compatible' ? 'openaiCompatible' : prov;
+    return new OpenAICompatibleAdapter({
+      baseUrl: cfg.get<string>(`${providerSection}.baseUrl`, presets.baseUrl ?? ''),
+      apiKey: cfg.get<string>(`${providerSection}.apiKey`, ''),
+      chatModel: cfg.get<string>('model.chat', presets.chatModel ?? 'gpt-4o'),
+      completionModel: cfg.get<string>(
         'model.completion',
         presets.completionModel ?? 'gpt-4o-mini',
       ),
-      providerName: provider,
+      providerName: prov,
     });
   }
+
+  // Create the appropriate LLM adapter based on provider setting
+  let llmAdapter = createLlmAdapterFromConfig();
 
   const fileFilter = new FileFilter(workspaceRoot);
   fileFilter.loadIgnoreFile();
@@ -197,15 +208,21 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   void agentLoop.loadCustomCommands();
 
+  // Register VS Code Chat Participant (@opencob in built-in chat)
+  context.subscriptions.push(registerChatParticipant(context, agentLoop));
+
   // Register Inline Completion Provider (F2)
   const inlineCompletionProvider = new InlineCompletionProvider(llmAdapter, redactionEngine);
-  context.subscriptions.push(
-    vscode.languages.registerInlineCompletionItemProvider(
-      { pattern: '**' },
-      inlineCompletionProvider,
-    ),
+  let inlineCompletionDisposable = vscode.languages.registerInlineCompletionItemProvider(
+    { pattern: '**' },
     inlineCompletionProvider,
   );
+  let inlineCompletionEnabled = true;
+  context.subscriptions.push(inlineCompletionDisposable, inlineCompletionProvider);
+
+  // Register Inline Edit Provider (§8.4.2)
+  const inlineEditProvider = new InlineEditProvider(agentLoop, redactionEngine);
+  context.subscriptions.push(inlineEditProvider);
 
   const chatProvider = new ChatPanelProvider(
     context.extensionUri,
@@ -217,6 +234,16 @@ export function activate(context: vscode.ExtensionContext): void {
   chatProvider.onActivity((entry) => {
     activityProvider.addActivity(entry as any);
   });
+
+  // Register Quick Chat provider (§8.4.5)
+  const quickChatProvider = new QuickChatProvider(context.extensionUri, agentLoop, redactionEngine);
+  context.subscriptions.push(quickChatProvider);
+
+  // Register Edits Panel provider (§8.4.3)
+  const editsPanelProvider = new EditsPanelProvider(context.extensionUri, workspaceRoot);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('OpenCob.editsPanel', editsPanelProvider),
+  );
 
   // Model type classifier — used to filter models into chat/completion vs embedding
   const EMBEDDING_PATTERNS = /embed|embedding|nomic-embed|mxbai-embed|text-embedding|bge-|e5-/i;
@@ -756,6 +783,65 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Generate Diagram command (F4.4) — direct invocation from active file
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.generateDiagram', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage('OpenCob: No active editor — open a source file first.');
+        return;
+      }
+
+      const doc = editor.document;
+      const filePath = doc.uri.fsPath;
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      const info = classifyExtension(ext);
+
+      if (!info) {
+        vscode.window.showWarningMessage(
+          `OpenCob: Unsupported file type ".${ext}" for diagram generation.`,
+        );
+        return;
+      }
+
+      const available = getAvailableDiagramTypes(ext);
+      if (available.length === 0) {
+        vscode.window.showWarningMessage(
+          `OpenCob: No diagram types available for ".${ext}" files.`,
+        );
+        return;
+      }
+
+      const items = available.map((t) => ({
+        label: t,
+        description: getDiagramDescription(t),
+      }));
+
+      const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: `Select diagram type for ${path.basename(filePath)} (${info.category})`,
+      });
+      if (!selected) return;
+
+      const content = doc.getText();
+      const result = generateDiagramFromContent(content, ext, selected.label as any);
+
+      if (!result.success) {
+        vscode.window.showErrorMessage(`OpenCob Diagram: ${result.content}`);
+        return;
+      }
+
+      // Show the diagram output in a new editor tab
+      const outputDoc = await vscode.workspace.openTextDocument({
+        content: result.content,
+        language: result.metadata?.format === 'ascii' ? 'text' : 'markdown',
+      });
+      await vscode.window.showTextDocument(outputDoc, {
+        viewColumn: vscode.ViewColumn.Beside,
+        preview: true,
+      });
+    }),
+  );
+
   // ── Enterprise Edition handshake ────────────────────────────────────
   const eeClient = new EEClient({
     onStateChange: (state) => {
@@ -844,6 +930,35 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
+  // Listen for provider/connection settings changes and hot-swap the adapter
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (
+        e.affectsConfiguration('OpenCob.model.provider') ||
+        e.affectsConfiguration('OpenCob.ollama') ||
+        e.affectsConfiguration('OpenCob.litellm') ||
+        e.affectsConfiguration('OpenCob.openai') ||
+        e.affectsConfiguration('OpenCob.azure') ||
+        e.affectsConfiguration('OpenCob.anthropic') ||
+        e.affectsConfiguration('OpenCob.gemini') ||
+        e.affectsConfiguration('OpenCob.openaiCompatible')
+      ) {
+        config = vscode.workspace.getConfiguration('OpenCob');
+        provider = config.get<string>('model.provider', 'ollama');
+        llmAdapter = createLlmAdapterFromConfig();
+        agentLoop.setLlmAdapter(llmAdapter);
+        statusBarItem.text = `$(hubot) ${llmAdapter.getChatModel()}`;
+        chatProvider.setModel(llmAdapter.getChatModel());
+        chatProvider.setConnectionStatus(false, provider, 0);
+        vscode.window.showInformationMessage(
+          `OpenCob: Switched to ${provider}. Testing connection...`,
+        );
+        // Auto-test the new provider
+        vscode.commands.executeCommand('OpenCob.testConnection');
+      }
+    }),
+  );
+
   // Mode indicator in status bar
   const modeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
   const activeMode = modeEngine.getActive();
@@ -866,12 +981,79 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Command: Toggle Inline Completion (§7)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.toggleInlineCompletion', () => {
+      if (inlineCompletionEnabled) {
+        inlineCompletionDisposable.dispose();
+        inlineCompletionEnabled = false;
+        vscode.window.showInformationMessage('OpenCob: Inline completion disabled.');
+      } else {
+        inlineCompletionDisposable = vscode.languages.registerInlineCompletionItemProvider(
+          { pattern: '**' },
+          inlineCompletionProvider,
+        );
+        context.subscriptions.push(inlineCompletionDisposable);
+        inlineCompletionEnabled = true;
+        vscode.window.showInformationMessage('OpenCob: Inline completion enabled.');
+      }
+    }),
+  );
+
+  // Command: Inline Edit — Cmd+I (§8.4.2)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.inlineEdit', () => {
+      inlineEditProvider.triggerInlineEdit();
+    }),
+    vscode.commands.registerCommand('OpenCob.inlineEditAccept', () => {
+      inlineEditProvider.acceptEdit();
+    }),
+    vscode.commands.registerCommand('OpenCob.inlineEditDiscard', () => {
+      inlineEditProvider.discardEdit();
+    }),
+  );
+
+  // Command: Quick Chat — Cmd+Shift+I (§8.4.5)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.quickChat', () => {
+      quickChatProvider.show();
+    }),
+  );
+
+  // Command: Toggle Panel — Ctrl+Alt+I (§8.4.7)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.togglePanel', () => {
+      vscode.commands.executeCommand('OpenCob.chatPanel.focus');
+    }),
+  );
+
   // Disconnect MCP servers on deactivation
   context.subscriptions.push({
     dispose: () => mcpClient.disconnectAll(),
   });
 
   console.log('OpenCob CE activated');
+}
+
+/** Map diagram type slugs to human-readable descriptions for the QuickPick UI. */
+function getDiagramDescription(type: string): string {
+  const descriptions: Record<string, string> = {
+    call_graph: 'External CALL/LINK/XCTL targets',
+    dependency_map: 'COPY/INCLUDE/file references',
+    structure_chart: 'Program structure (divisions/sections/paragraphs)',
+    procedure_flow: 'Paragraph/procedure execution sequence',
+    control_flow: 'IF/ELSE/EVALUATE/PERFORM flow graph',
+    field_hierarchy: 'Data item hierarchy (level numbers)',
+    file_io: 'File SELECT/ASSIGN/OPEN/CLOSE mapping',
+    copybook_tree: 'Copybook dependency tree',
+    record_layout: 'Record formats with field types',
+    screen_layout: 'Terminal screen rendering (ASCII art)',
+    'call-graph': 'Function call graph',
+    dependency: 'Import/require graph',
+    structure: 'File/folder structure',
+    class: 'Class hierarchy (extends/implements)',
+  };
+  return descriptions[type] ?? '';
 }
 
 export function deactivate(): void {
