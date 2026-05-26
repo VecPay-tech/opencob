@@ -280,7 +280,11 @@ describe('execute_command tool', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {
+      /* orphan process may hold cwd */
+    }
   });
 
   it('executes a simple command', async () => {
@@ -311,13 +315,15 @@ describe('execute_command tool', () => {
 
   it('times out long-running commands', async () => {
     const tool = createExecuteCommandTool(tmpDir);
-    const result = await tool.execute({ command: 'sleep 10', timeout: 200 });
+    const cmd = process.platform === 'win32' ? 'ping -n 100 127.0.0.1' : 'sleep 10';
+    const result = await tool.execute({ command: cmd, timeout: 200 });
     expect(result.content).toContain('timed out');
   }, 10000);
 
   it('runs in workspace directory', async () => {
     const tool = createExecuteCommandTool(tmpDir);
-    const result = await tool.execute({ command: 'pwd' });
+    const cmd = process.platform === 'win32' ? 'cd' : 'pwd';
+    const result = await tool.execute({ command: cmd });
     expect(result.success).toBe(true);
     expect(result.content).toContain(tmpDir);
   });

@@ -444,7 +444,11 @@ describe('createExecuteCommandTool — extended coverage', () => {
   });
 
   afterEach(() => {
-    rmSync(tmpDir, { recursive: true });
+    try {
+      rmSync(tmpDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch {
+      /* orphan process may hold cwd */
+    }
   });
 
   it('executes simple command', async () => {
@@ -470,7 +474,8 @@ describe('createExecuteCommandTool — extended coverage', () => {
 
   it('handles timeout', async () => {
     const tool = createExecuteCommandTool(tmpDir);
-    const result = await tool.execute({ command: 'sleep 10', timeout: 200 });
+    const cmd = process.platform === 'win32' ? 'ping -n 100 127.0.0.1' : 'sleep 10';
+    const result = await tool.execute({ command: cmd, timeout: 200 });
     expect(result.success).toBe(false);
     expect(result.content).toContain('timed out');
   }, 10000);

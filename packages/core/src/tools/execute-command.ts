@@ -42,10 +42,11 @@ export function createExecuteCommandTool(workspaceRoot: string): Tool {
         let stdout = '';
         let stderr = '';
         let killed = false;
+        let resolved = false;
 
         const timer = setTimeout(() => {
           killed = true;
-          child.kill('SIGTERM');
+          child.kill();
         }, timeout);
 
         child.stdout.on('data', (data: Buffer) => {
@@ -53,7 +54,7 @@ export function createExecuteCommandTool(workspaceRoot: string): Tool {
           if (stdout.length > MAX_OUTPUT) {
             stdout = stdout.slice(0, MAX_OUTPUT) + '\n... (output truncated)';
             killed = true;
-            child.kill('SIGTERM');
+            child.kill();
           }
         });
 
@@ -64,7 +65,9 @@ export function createExecuteCommandTool(workspaceRoot: string): Tool {
           }
         });
 
-        child.on('close', (code: number | null) => {
+        const doResolve = (code: number | null) => {
+          if (resolved) return;
+          resolved = true;
           clearTimeout(timer);
 
           const output = [
@@ -76,10 +79,20 @@ export function createExecuteCommandTool(workspaceRoot: string): Tool {
             .join('\n\n');
 
           resolve({
-            success: code === 0,
+            success: !killed && code === 0,
             content: output || '(no output)',
             metadata: { exitCode: code, command, timedOut: killed },
           });
+        };
+
+        // Use 'exit' to resolve promptly when the process is killed (Windows
+        // child processes may hold inherited pipes open, delaying 'close').
+        child.on('exit', (code: number | null) => {
+          if (killed) doResolve(code);
+        });
+
+        child.on('close', (code: number | null) => {
+          doResolve(code);
         });
 
         child.on('error', (err: Error) => {
