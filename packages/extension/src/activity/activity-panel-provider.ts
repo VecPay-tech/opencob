@@ -30,7 +30,6 @@ export interface WorkspaceStats {
   languages: Record<string, number>;
 }
 
-// @ts-expect-error reserved for future logging
 const _outputChannel = vscode.window.createOutputChannel('OpenCob Activity');
 
 export class ActivityPanelProvider implements vscode.WebviewViewProvider {

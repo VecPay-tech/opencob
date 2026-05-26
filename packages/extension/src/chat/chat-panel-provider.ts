@@ -577,7 +577,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   }
 
   private handleAgentEvent(event: AgentEvent): void {
-    switch (event.type) {
+    switch (event.type as string) {
       case 'text':
         this.view?.webview.postMessage({
           type: 'responseChunk',

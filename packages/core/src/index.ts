@@ -2,7 +2,13 @@
 // Re-exports all public APIs
 
 // Modes
-export { ModeEngine, type Mode, type ModeSlug, BUILT_IN_MODES } from './modes/mode-engine.js';
+export {
+  ModeEngine,
+  type Mode,
+  type ModeSlug,
+  type ToolGroupConfig,
+  BUILT_IN_MODES,
+} from './modes/mode-engine.js';
 
 // Tools
 export { type Tool, type ToolResult, type ToolGroup } from './tools/types.js';

@@ -668,6 +668,26 @@ export class AgentLoop {
     return this.turnFileChanges;
   }
 
+  /** Non-streaming convenience method — runs processMessage and collects results */
+  async run(
+    prompt: string,
+    _options?: { stream?: boolean; mode?: string },
+  ): Promise<{
+    content: string;
+    toolCalls: Array<{ name: string; params: Record<string, unknown> }>;
+  }> {
+    let content = '';
+    const toolCalls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    for await (const event of this.processMessage(prompt)) {
+      if (event.type === 'text' && event.text) {
+        content += event.text;
+      } else if (event.type === 'tool_call' && event.toolCall) {
+        toolCalls.push({ name: event.toolCall.name, params: event.toolCall.parameters });
+      }
+    }
+    return { content, toolCalls };
+  }
+
   /** Track a file change after a successful write tool (§8.4.1.1) */
   private trackFileChange(filePath: string, resultContent: string): void {
     // Parse lines added/removed from result content heuristically

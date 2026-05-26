@@ -70,7 +70,7 @@ export function registerChatParticipant(
         if (response.toolCalls && response.toolCalls.length > 0) {
           for (const call of response.toolCalls) {
             if (call.name === 'read_file' || call.name === 'write_file') {
-              const filePath = call.params?.path || call.params?.filePath;
+              const filePath = (call.params?.path || call.params?.filePath) as string | undefined;
               if (filePath) {
                 try {
                   const uri = vscode.Uri.file(filePath);

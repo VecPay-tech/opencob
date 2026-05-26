@@ -51,6 +51,7 @@ import {
   generateDiagramFromContent,
   classifyExtension,
   getAvailableDiagramTypes,
+  type ToolGroupConfig,
 } from '@opencob/core';
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -67,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
           name: cm.name,
           roleDefinition: cm.roleDefinition,
           whenToUse: cm.whenToUse,
-          groups: cm.groups,
+          groups: cm.groups as ToolGroupConfig[],
           customInstructions: cm.customInstructions,
         });
       }
@@ -156,10 +157,6 @@ export function activate(context: vscode.ExtensionContext): void {
   const literateCoding = new LiterateCodingEngine();
 
   const toolRegistry = new ToolRegistry(modeEngine, {
-    approvalCallback: async (tool, params) => {
-      // Show inline approval card in chat panel (Copilot-style)
-      return chatProvider.requestToolApproval(tool.name, tool.group, params);
-    },
     fileFilter: fileFilter.getFilterFn(),
     autoApprove: {
       read: config.get<boolean>('autoApprove.read', true),
@@ -232,6 +229,9 @@ export function activate(context: vscode.ExtensionContext): void {
     conversationManager,
   );
   chatProvider.setToolRegistry(toolRegistry);
+  toolRegistry.setApprovalCallback(async (tool, params) => {
+    return chatProvider.requestToolApproval(tool.name, tool.group, params);
+  });
   chatProvider.onActivity((entry) => {
     activityProvider.addActivity(entry as any);
   });
@@ -304,6 +304,14 @@ export function activate(context: vscode.ExtensionContext): void {
       chatProvider.setAvailableModels([currentChat], currentChat);
     }
   }
+
+  // Status bar item — created early since async IIFE and commands reference it
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBarItem.text = `$(hubot) ${config.get<string>('model.chat', 'qwen2.5-coder:7b')}`;
+  statusBarItem.tooltip = 'OpenCob — Click to switch model';
+  statusBarItem.command = 'OpenCob.selectModel';
+  statusBarItem.show();
+  context.subscriptions.push(statusBarItem);
 
   // Auto-detect models from provider on startup
   (async () => {
@@ -624,48 +632,45 @@ export function activate(context: vscode.ExtensionContext): void {
       const counts = findingsScanner.getCounts();
       vscode.window.showInformationMessage(
         `OpenCob Scan: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info (${counts.total} total)`,
-
-        // Open finding in editor
-        vscode.commands.registerCommand('opencob.openFinding', async (finding: Finding) => {
-          const fileUri = vscode.Uri.file(path.join(workspaceRoot, finding.file));
-          const doc = await vscode.workspace.openTextDocument(fileUri);
-          const editor = await vscode.window.showTextDocument(doc);
-          const line = Math.max(0, finding.line - 1);
-          editor.selection = new vscode.Selection(line, 0, line, 0);
-          editor.revealRange(
-            new vscode.Range(line, 0, line, 0),
-            vscode.TextEditorRevealType.InCenter,
-          );
-        }),
-
-        // Toggle findings view mode
-        vscode.commands.registerCommand('OpenCob.toggleFindingsMode', async () => {
-          const result = await vscode.window.showQuickPick(
-            [
-              {
-                label: 'Group by File',
-                description: 'Organize findings by source file',
-                mode: 'file',
-              },
-              {
-                label: 'Group by Severity',
-                description: 'Organize findings by severity level',
-                mode: 'severity',
-              },
-            ],
-            { placeHolder: 'Select findings view mode' },
-          );
-          if (result) {
-            findingsProvider.setViewMode(result.mode as 'file' | 'severity');
-          }
-        }),
-
-        // Clear findings
-        vscode.commands.registerCommand('OpenCob.clearFindings', () => {
-          findingsProvider.clear();
-          vscode.window.showInformationMessage('OpenCob: Findings cleared');
-        }),
       );
+    }),
+
+    // Open finding in editor
+    vscode.commands.registerCommand('opencob.openFinding', async (finding: Finding) => {
+      const fileUri = vscode.Uri.file(path.join(workspaceRoot, finding.file));
+      const doc = await vscode.workspace.openTextDocument(fileUri);
+      const editor = await vscode.window.showTextDocument(doc);
+      const line = Math.max(0, finding.line - 1);
+      editor.selection = new vscode.Selection(line, 0, line, 0);
+      editor.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter);
+    }),
+
+    // Toggle findings view mode
+    vscode.commands.registerCommand('OpenCob.toggleFindingsMode', async () => {
+      const result = await vscode.window.showQuickPick(
+        [
+          {
+            label: 'Group by File',
+            description: 'Organize findings by source file',
+            mode: 'file',
+          },
+          {
+            label: 'Group by Severity',
+            description: 'Organize findings by severity level',
+            mode: 'severity',
+          },
+        ],
+        { placeHolder: 'Select findings view mode' },
+      );
+      if (result) {
+        findingsProvider.setViewMode(result.mode as 'file' | 'severity');
+      }
+    }),
+
+    // Clear findings
+    vscode.commands.registerCommand('OpenCob.clearFindings', () => {
+      findingsProvider.clear();
+      vscode.window.showInformationMessage('OpenCob: Findings cleared');
     }),
   );
 
@@ -691,22 +696,20 @@ export function activate(context: vscode.ExtensionContext): void {
       activityProvider.updateStats({
         totalFiles: status.totalFiles,
         indexedFiles: status.indexedFiles,
-        recentEdits: ragPipeline.getRecentEdits?.() || [relPath],
+        recentEdits: ragPipeline.getRecentFiles() || [relPath],
       });
 
       // Wire findings to the TreeView provider
       context.subscriptions.push(
         vscode.commands.registerCommand('OpenCob.showFindings', () => {
-          const allFindings = findingsScanner.getFindings();
+          const allFindings = findingsScanner.getAllFindings();
           const findings: Finding[] = allFindings.map((f) => ({
             id: f.id,
-            file: f.file,
-            line: f.line,
-            severity: f.severity as 'error' | 'warning' | 'info',
-            type: f.type,
+            file: f.filePath,
+            line: f.line ?? 0,
+            severity: f.severity,
+            type: f.category,
             message: f.message,
-            details: f.details,
-            suggestion: f.suggestion,
             timestamp: Date.now(),
           }));
           findingsProvider.addFindings(findings);
@@ -923,13 +926,6 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage('OpenCob: Disconnected from Enterprise server');
     }),
   );
-
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.text = `$(hubot) ${config.get<string>('model.chat', 'qwen2.5-coder:7b')}`;
-  statusBarItem.tooltip = 'OpenCob — Click to switch model';
-  statusBarItem.command = 'OpenCob.selectModel';
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
 
   // Listen for provider/connection settings changes and hot-swap the adapter
   context.subscriptions.push(
