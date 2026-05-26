@@ -26,7 +26,6 @@ import {
   type DiagramType,
   type LegacyDiagramType,
   type FileTypeInfo,
-  FILE_TYPES,
   DIAGRAM_TYPES,
   ALL_LEGACY_EXTS,
   COBOL_EXTS,
@@ -857,7 +856,7 @@ function generateClProcedureFlow(content: string): DiagramData | null {
 function generateClControlFlow(
   content: string,
   filePath: string,
-  sectionId?: number,
+  _sectionId?: number,
 ): DiagramData | null {
   const lines = content.split('\n');
   const stripped = lines.map((line) => line.trimEnd());
@@ -880,7 +879,7 @@ function generateRpgDiagram(
   filePath: string,
   content: string,
   diagramType: LegacyDiagramType,
-  info: FileTypeInfo,
+  _info: FileTypeInfo,
 ): DiagramData | null {
   const parser = new RpgParser();
   const program = parser.parse(content, filePath);
@@ -1052,7 +1051,7 @@ function generatePliDiagram(
   filePath: string,
   content: string,
   diagramType: LegacyDiagramType,
-  info: FileTypeInfo,
+  _info: FileTypeInfo,
 ): DiagramData | null {
   const parser = new PliParser();
   const program = parser.parse(content, filePath);
@@ -1390,7 +1389,7 @@ function generateStructureDiagram(files: string[], root: string): string {
   return '```mermaid\n' + lines.join('\n') + '\n```';
 }
 
-function generateClassDiagram(files: string[], root: string): string {
+function generateClassDiagram(files: string[], _root: string): string {
   const lines = ['classDiagram'];
 
   for (const file of files) {
@@ -1873,7 +1872,7 @@ export function generateDiagramFromContent(
 
   if (COBOL_EXTS.has(ext)) {
     const parser = new CobolParser();
-    const program = parser.parse(content, syntheticPath);
+    const _program = parser.parse(content, syntheticPath);
     data = generateCobolDiagram(syntheticPath, content, legacyType, info, sectionId);
   } else if (CL_EXTS.has(ext)) {
     data = generateClDiagram(syntheticPath, content, legacyType, info, sectionId);

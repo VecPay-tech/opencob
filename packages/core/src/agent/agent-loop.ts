@@ -1,4 +1,4 @@
-import type { LlmAdapter, ChatMessage, StreamChunk } from '../llm/types.js';
+import type { LlmAdapter } from '../llm/types.js';
 import type { ToolExecutionResult } from '../tools/tool-registry.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { ConversationManager } from '../conversation/conversation-manager.js';
@@ -579,8 +579,8 @@ export class AgentLoop {
     // Custom commands from .OpenCob/commands/ (F17)
     const cmdName = command.slice(1); // remove leading /
     if (this.customCommands.has(cmdName)) {
-      const customCmd = this.customCommands.get(cmdName)!;
-      const remainder = trimmed.slice(command.length).trim();
+      const _customCmd = this.customCommands.get(cmdName)!;
+      const _remainder = trimmed.slice(command.length).trim();
       // Return null so processMessage rewrites it with the custom prompt
       return null;
     }

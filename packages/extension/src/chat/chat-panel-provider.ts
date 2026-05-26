@@ -526,7 +526,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
   /** Resolve #file references in the message text — read file content and inject as context */
   private async resolveFileReferences(text: string): Promise<string> {
-    const pattern = /#([\w.\/\\-]+)/g;
+    const pattern = /#([\w./\\-]+)/g;
     const matches = [...text.matchAll(pattern)];
     if (matches.length === 0) return text;
 
@@ -2457,7 +2457,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       };
       var defaultIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
       agentModes = modes.map(function(m) {
-        var cleanName = m.name.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]+\s*/u, '');
+        var cleanName = m.name.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]+ */u, '');
         return { slug: m.slug, name: cleanName, icon: lucideIcons[m.slug] || defaultIcon };
       });
       // Sync dropdown to current activeMode (already set by modeChanged)

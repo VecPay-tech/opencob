@@ -1,4 +1,4 @@
-import type { Tool, ToolResult, ToolGroup } from './types.js';
+import type { Tool, ToolResult } from './types.js';
 import type { ModeEngine } from '../modes/mode-engine.js';
 
 export interface ToolExecutionRequest {

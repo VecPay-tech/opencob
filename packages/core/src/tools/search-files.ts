@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { resolve, relative, join } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
 

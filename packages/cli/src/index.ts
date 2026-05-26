@@ -6,7 +6,6 @@ import {
   AgentLoop,
   RedactionEngine,
   SnapshotManager,
-  WorkspaceIndexer,
   RAGPipeline,
   createReadFileTool,
   createListFilesTool,
@@ -68,8 +67,7 @@ async function main(): Promise<void> {
     },
   });
 
-  // Initialize indexer & RAG
-  const workspaceIndexer = new WorkspaceIndexer(workspaceRoot);
+  // Initialize RAG
   const ragPipeline = new RAGPipeline();
 
   toolRegistry.registerAll([

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { ChatPanelProvider } from './chat/chat-panel-provider.js';
 import { InlineCompletionProvider } from './completion/inline-completion-provider.js';
 import { FindingsProvider, type Finding } from './findings/findings-provider.js';
@@ -145,7 +146,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // Initialize Model Router (F9)
-  const modelRouter = new ModelRouter(llmAdapter, {
+  const _modelRouter = new ModelRouter(llmAdapter, {
     chat: config.get<string>('model.chat', 'qwen2.5-coder:7b'),
     completion: config.get<string>('model.completion', 'qwen2.5-coder:1.5b'),
     embedding: config.get<string>('model.embedding', 'nomic-embed-text'),
@@ -260,7 +261,7 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       const extPath = context.extensionPath;
       const pkgPath = path.join(extPath, 'package.json');
-      const raw = await require('fs').promises.readFile(pkgPath, 'utf-8');
+      const raw = await fs.promises.readFile(pkgPath, 'utf-8');
       const pkg = JSON.parse(raw);
 
       const chatModels = allModels.filter((m) => isChatModel(m));
@@ -284,7 +285,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
       }
 
-      await require('fs').promises.writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
+      await fs.promises.writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
     } catch {
       // Non-critical — settings will still work as text fields
     }
@@ -566,11 +567,11 @@ export function activate(context: vscode.ExtensionContext): void {
           const chatAvailable = models.includes(chatModel);
           const completionAvailable = models.includes(completionModel);
 
-          let message = `✅ Connected to **${provider}** (${latency}ms)\n`;
-          message += `\n📡 Endpoint: ${baseUrl}`;
-          message += `\n📦 Models available: ${models.length}`;
-          message += `\n💬 Chat model: ${chatModel} ${chatAvailable ? '✅' : '⚠️ not found'}`;
-          message += `\n⚡ Completion model: ${completionModel} ${completionAvailable ? '✅' : '⚠️ not found'}`;
+          let _message = `✅ Connected to **${provider}** (${latency}ms)\n`;
+          _message += `\n📡 Endpoint: ${baseUrl}`;
+          _message += `\n📦 Models available: ${models.length}`;
+          _message += `\n💬 Chat model: ${chatModel} ${chatAvailable ? '✅' : '⚠️ not found'}`;
+          _message += `\n⚡ Completion model: ${completionModel} ${completionAvailable ? '✅' : '⚠️ not found'}`;
 
           if (!chatAvailable || !completionAvailable) {
             const action = await vscode.window.showWarningMessage(
@@ -619,7 +620,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Scan workspace for findings (F7)
     vscode.commands.registerCommand('OpenCob.scanWorkspace', () => {
-      const findings = findingsScanner.scanWorkspace();
+      findingsScanner.scanWorkspace();
       const counts = findingsScanner.getCounts();
       vscode.window.showInformationMessage(
         `OpenCob Scan: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info (${counts.total} total)`,

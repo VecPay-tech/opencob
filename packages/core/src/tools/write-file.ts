@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { resolve, relative, dirname } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
 

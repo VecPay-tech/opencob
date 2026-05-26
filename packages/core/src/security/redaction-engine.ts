@@ -24,7 +24,7 @@ const BUILT_IN_RULES: RedactionRule[] = [
   },
   {
     name: 'GENERIC_API_KEY',
-    pattern: /(?:api[_-]?key|apikey|api[_-]?token)\s*[:=]\s*['"]?([A-Za-z0-9_\-]{20,})['"]?/gi,
+    pattern: /(?:api[_-]?key|apikey|api[_-]?token)\s*[:=]\s*['"]?([A-Za-z0-9_-]{20,})['"]?/gi,
     replacement: '[REDACTED_API_KEY]',
   },
   {
@@ -60,7 +60,7 @@ const BUILT_IN_RULES: RedactionRule[] = [
   },
   {
     name: 'SLACK_TOKEN',
-    pattern: /xox[baprs]-[A-Za-z0-9\-]{10,}/g,
+    pattern: /xox[baprs]-[A-Za-z0-9-]{10,}/g,
     replacement: '[REDACTED_SLACK_TOKEN]',
   },
 ];

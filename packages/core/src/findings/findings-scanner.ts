@@ -137,7 +137,7 @@ export class FindingsScanner {
   }
 
   /** Scan all supported files in the workspace */
-  scanWorkspace(patterns: string[] = ['**/*.ts', '**/*.js', '**/*.py']): Finding[] {
+  scanWorkspace(_patterns: string[] = ['**/*.ts', '**/*.js', '**/*.py']): Finding[] {
     const allFindings: Finding[] = [];
     const files = this.collectFiles(this.workspaceRoot, 5);
 

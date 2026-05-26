@@ -168,7 +168,7 @@ export class PostEditVerifier {
     const lines = content.split('\n');
     let inString = false;
     let stringChar = '';
-    let inComment = false;
+    const inComment = false;
     let inBlockComment = false;
 
     for (let i = 0; i < lines.length; i++) {

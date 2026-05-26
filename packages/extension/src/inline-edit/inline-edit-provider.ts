@@ -153,10 +153,10 @@ export class InlineEditProvider implements vscode.Disposable {
     newText: string,
   ): Promise<void> {
     // Create temporary documents for the diff view
-    const originalUri = vscode.Uri.parse(
+    const _originalUri = vscode.Uri.parse(
       `opencob-inline-edit-original:${editor.document.uri.path}`,
     );
-    const modifiedUri = vscode.Uri.parse(
+    const _modifiedUri = vscode.Uri.parse(
       `opencob-inline-edit-modified:${editor.document.uri.path}`,
     );
 

@@ -127,8 +127,8 @@ function getPatterns(ext: string): DefinitionPattern[] {
 
   const cobolPatterns: DefinitionPattern[] = [
     { type: 'program', regex: /^\s+PROGRAM-ID\.\s+(\S+)/i },
-    { type: 'paragraph', regex: /^       (\w[\w-]+)\.\s*$/ },
-    { type: 'section', regex: /^       (\w[\w-]+)\s+SECTION\.\s*$/i },
+    { type: 'paragraph', regex: /^ {7}(\w[\w-]+)\.\s*$/ },
+    { type: 'section', regex: /^ {7}(\w[\w-]+)\s+SECTION\.\s*$/i },
     { type: 'copy', regex: /^\s+COPY\s+(\S+)/i },
   ];
 
