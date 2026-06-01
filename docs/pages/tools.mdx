@@ -1,0 +1,173 @@
+---
+title: Tools
+description: Built-in tools available to the OpenCob agent for reading, writing, and interacting with the workspace
+---
+
+# Tools
+
+The agent uses tools to interact with your workspace. Each tool requires approval unless auto-approved in settings.
+
+## File Operations
+
+### read_file
+
+Read the contents of a file.
+
+```
+Parameters:
+  path: string     — Relative path to the file
+  lines?: string   — Optional line range "start-end"
+```
+
+### write_to_file
+
+Create or overwrite a file with new content.
+
+```
+Parameters:
+  path: string      — Relative path to the file
+  content: string   — Full file content to write
+```
+
+### apply_diff
+
+Apply a targeted edit to an existing file (search and replace).
+
+```
+Parameters:
+  path: string        — Relative path to the file
+  diff: string        — Search/replace blocks in unified format
+```
+
+### insert_content
+
+Insert content at a specific line in a file.
+
+```
+Parameters:
+  path: string        — Relative path to the file
+  line: number        — Line number to insert at (0 = beginning)
+  content: string     — Content to insert
+```
+
+## Search & Navigation
+
+### search_files
+
+Search for text or regex patterns across workspace files.
+
+```
+Parameters:
+  pattern: string        — Search pattern (regex supported)
+  path?: string          — Directory to search in
+  include?: string       — File glob to include
+  exclude?: string       — File glob to exclude
+```
+
+### list_directory
+
+List files and folders in a directory.
+
+```
+Parameters:
+  path: string           — Relative path to list
+  recursive?: boolean    — Include subdirectories
+```
+
+### list_code_definitions
+
+List function/class/method definitions in a file.
+
+```
+Parameters:
+  path: string           — Relative path to the file
+```
+
+## Terminal
+
+### execute_command
+
+Run a command in the integrated terminal.
+
+```
+Parameters:
+  command: string        — The command to execute
+  cwd?: string           — Working directory (default: workspace root)
+```
+
+**Security**: Commands require explicit approval by default. The agent cannot run arbitrary commands without user consent.
+
+## Browser (Optional)
+
+### browser_action
+
+Interact with a browser for testing or scraping (requires browser MCP server).
+
+```
+Parameters:
+  action: string         — navigate, click, type, screenshot, etc.
+  url?: string           — URL to navigate to
+  selector?: string      — CSS selector for interactions
+```
+
+## Analysis
+
+### generate_diagram
+
+Generate Mermaid diagrams from source files (control_flow, dependency_map, data_structure, copybook_tree, screen_layout, usage_map).
+
+```
+Parameters:
+  path: string           — Relative path to the source file
+  type?: string          — Diagram type (auto-detected if omitted)
+  section?: string       — Optional section/paragraph to scope
+```
+
+See [Diagrams](/diagrams) for full details on supported types and usage.
+
+### analyze_code
+
+Analyze code for patterns, complexity, and potential issues. Powered by the [Quality Rules](/quality) engine with configurable checkers and severity levels.
+
+```
+Parameters:
+  path: string           — Relative path to the file
+  focus?: string         — Analysis focus (security, complexity, patterns)
+```
+
+See [Code Quality](/quality) for rule configuration and [Dependencies](/dependencies) for impact analysis.
+
+## Tool Approval Settings
+
+Configure auto-approval in VS Code settings:
+
+```json
+{
+  "opencob.autoApprove.readOperations": true,
+  "opencob.autoApprove.writeOperations": false,
+  "opencob.autoApprove.commandExecution": false
+}
+```
+
+| Setting | Default | What it controls |
+|---|---|---|
+| `readOperations` | `true` | read_file, search_files, list_directory |
+| `writeOperations` | `false` | write_to_file, apply_diff, insert_content |
+| `commandExecution` | `false` | execute_command |
+
+## MCP Tools
+
+Additional tools can be connected via Model Context Protocol servers. See [MCP Servers](/mcp) for details.
+
+## Tool Restrictions per Agent
+
+Custom agents can restrict which tools are available:
+
+```markdown
+---
+name: reviewer
+tools: [read_file, search_files, list_directory]
+---
+```
+
+This agent can only read — it cannot modify files or run commands.

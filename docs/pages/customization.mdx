@@ -1,0 +1,145 @@
+---
+title: Customization
+description: Tailor OpenCob to your project with instructions, agents, prompts, and CODEOWNERS scoping
+---
+
+# Customization
+
+OpenCob's behavior can be customized per-project through files in the `.opencob/` directory. Run `/setup` in the chat panel to scaffold this structure automatically.
+
+## Directory Structure
+
+```
+.opencob/
+├── opencob-instructions.md          # Always-active project instructions
+├── instructions/
+│   ├── typescript.instructions.md   # Scoped to TS files
+│   ├── api.instructions.md          # Scoped to API routes
+│   └── testing.instructions.md      # Scoped to test files
+├── hooks/
+│   ├── test-reminder.md             # Fires on file changes
+│   └── security-check.md            # Fires before tool calls
+├── agents/
+│   ├── reviewer.agent.md            # Code review persona
+│   └── architect.agent.md           # Architecture advisor
+└── prompts/
+    ├── migration.prompt.md          # Reusable migration prompt
+    └── document.prompt.md           # Documentation generator
+```
+
+## Project Instructions
+
+The file `.opencob/opencob-instructions.md` is **always injected** into the system prompt. Use it for universal project rules:
+
+```markdown
+# Project Instructions
+
+- Use TypeScript strict mode
+- Follow the repository's existing patterns
+- All new code must have tests
+- Use pnpm, not npm or yarn
+```
+
+## Scoped Instructions
+
+Files in `.opencob/instructions/` use YAML frontmatter to control when they activate:
+
+```markdown
+---
+applyTo: "src/api/**/*.ts"
+description: REST API conventions
+---
+
+## API Endpoint Rules
+
+- Use proper HTTP status codes
+- Validate all input with zod schemas
+- Return consistent error response format
+- Add OpenAPI JSDoc annotations
+```
+
+### Frontmatter Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `applyTo` | ✓ | Glob pattern — instruction activates when any active file matches |
+| `description` | | Human-readable description |
+| `owner` | | CODEOWNERS team/user — only activates for files owned by this owner |
+
+### Pattern Examples
+
+| Pattern | Matches |
+|---|---|
+| `**/*.ts` | All TypeScript files |
+| `src/api/**` | All files under src/api/ |
+| `**/*.test.*` | All test files |
+| `packages/core/**` | Everything in the core package |
+
+## Custom Agents
+
+Define specialized agent personas in `.opencob/agents/`:
+
+```markdown
+---
+name: reviewer
+description: Focused code reviewer that never modifies files
+tools: [read_file, search_files, list_directory, list_code_definitions]
+---
+
+You are a meticulous code reviewer. Your job is to find bugs, security
+issues, and code smells. You NEVER modify files — only report findings.
+
+## Review Checklist
+
+- Security vulnerabilities (injection, auth bypass, data exposure)
+- Error handling gaps
+- Performance issues
+- Code duplication
+- Naming consistency
+```
+
+Switch to a custom agent via the mode selector dropdown in the chat panel.
+
+## Prompt Templates
+
+Create reusable prompts in `.opencob/prompts/`:
+
+```markdown
+---
+name: migrate
+description: Generate a migration plan from one language to another
+mode: plan
+variables:
+  - name: source
+    description: Source language or framework
+  - name: target
+    description: Target language or framework
+---
+
+Create a detailed migration plan to convert the {{source}} code in this
+workspace to {{target}}. For each file:
+
+1. Identify the equivalent patterns in {{target}}
+2. List any dependencies that need replacement
+3. Note breaking changes or behavioral differences
+```
+
+Invoke with `/migrate` in the chat, and OpenCob will prompt for variable values.
+
+## Multi-Level Precedence
+
+Instructions are resolved in priority order:
+
+1. **Active agent** — persona definition (if selected)
+2. **Project instructions** — `opencob-instructions.md` (always)
+3. **Scoped instructions** — matched by `applyTo` glob + optional `owner`
+4. **Global instructions** — `~/.opencob/instructions/` (user-wide)
+
+More specific `applyTo` patterns have higher priority within scoped instructions.
+
+## Tips
+
+- Keep instructions concise — they consume context tokens
+- Use `applyTo` aggressively to avoid injecting irrelevant rules
+- Test with `/help` to see what's currently active
+- Use `owner` scoping for large teams with different coding standards per module

@@ -1,0 +1,133 @@
+---
+title: Troubleshooting
+description: Common issues and solutions for OpenCob
+---
+
+# Troubleshooting
+
+## Connection Issues
+
+### "No LLM provider configured"
+
+**Cause**: No API key or provider is set.
+
+**Fix**: Open Settings (`Ctrl+,`) and configure your provider:
+```json
+{
+  "opencob.provider": "openai",
+  "opencob.openai.apiKey": "sk-..."
+}
+```
+
+### "API key invalid" or 401 errors
+
+**Cause**: The API key is incorrect or expired.
+
+**Fix**:
+1. Verify the key in your provider's dashboard
+2. Check for leading/trailing whitespace
+3. Ensure the key has the correct permissions/tier
+
+### "Rate limited" or 429 errors
+
+**Cause**: Too many requests to the LLM provider.
+
+**Fix**:
+- Wait a moment and try again
+- Consider upgrading your API plan
+- Reduce `opencob.maxToolRounds` to limit API calls per turn
+
+### Connection timeout to Ollama
+
+**Cause**: Ollama server isn't running or wrong port.
+
+**Fix**:
+```bash
+# Start Ollama
+ollama serve
+
+# Verify it's running
+curl http://localhost:11434/api/tags
+```
+
+## Extension Issues
+
+### Panel shows blank / doesn't load
+
+**Fix**:
+1. Reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window")
+2. Check the Output panel → "OpenCob Chat" for error messages
+3. Ensure Node.js 22+ is installed
+
+### Tools aren't executing
+
+**Cause**: Auto-approve is disabled and approval cards aren't visible.
+
+**Fix**:
+- Scroll down in the chat — approval card may be below the viewport
+- Enable auto-approve for read operations: `"opencob.autoApprove.readOperations": true`
+
+### Agent seems stuck / no response
+
+**Fix**:
+1. Click the Stop button (⬛) in the input area
+2. Check Output → "OpenCob Chat" for errors
+3. Try clearing the conversation (`/clear`)
+4. Reload the window if persists
+
+## Customization Issues
+
+### Instructions not activating
+
+**Cause**: `applyTo` pattern doesn't match active files.
+
+**Debug**:
+1. Check the pattern uses forward slashes: `src/api/**/*.ts` (not backslashes)
+2. Patterns are relative to workspace root
+3. Verify with `/help` to see what's currently active
+4. Check for YAML frontmatter syntax errors (missing `---` delimiters)
+
+### Hooks not firing
+
+**Cause**: Event name is misspelled or `applyTo` doesn't match.
+
+**Debug**:
+1. Valid events: `onFileChange`, `onFileSave`, `onChatStart`, `onChatEnd`, `onToolCallBefore`, `onToolCallAfter`, `onModeSwitch`, `onPlanCreated`, `onError`
+2. Check file is in `.opencob/hooks/` with `.md` extension
+3. Verify YAML frontmatter is correctly formatted
+
+### CODEOWNERS not recognized
+
+**Debug**:
+1. Ensure CODEOWNERS file exists in one of: `.opencob/CODEOWNERS`, `.github/CODEOWNERS`, or root `CODEOWNERS`
+2. Owner name in instruction should match without `@` prefix
+3. Check the CODEOWNERS pattern syntax (same as `.gitignore`)
+
+## Performance Issues
+
+### Slow responses
+
+**Possible causes**:
+- Large workspace (too many files in tree)
+- Model is slow (try a smaller model)
+- Too many instructions/hooks injecting into context
+
+**Fix**:
+- Use more specific `applyTo` patterns
+- Reduce the number of active instructions
+- Try a faster model (e.g., `gpt-4o-mini`)
+- Add a `.opencobignore` file to exclude large directories
+
+### High token usage
+
+**Fix**:
+- Keep instruction/hook bodies concise
+- Use `applyTo` to limit when instructions activate
+- Reduce `opencob.maxToolRounds`
+- Use Ask mode for questions (fewer tool calls)
+
+## Getting Help
+
+1. Check the [Output panel](command:workbench.action.output.toggleOutput) → "OpenCob Chat" for detailed logs
+2. Run `/help` in the chat for customization guidance
+3. File issues at [github.com/mountek/opencob/issues](https://github.com/mountek/opencob/issues)

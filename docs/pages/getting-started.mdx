@@ -1,0 +1,95 @@
+---
+title: Getting Started
+description: Your first conversation with OpenCob — from opening the panel to making your first code change
+---
+
+# Getting Started
+
+## Open the Chat Panel
+
+Click the OpenCob icon in the Activity Bar (left sidebar), or use the keyboard shortcut:
+
+- **Windows/Linux**: `Ctrl+Shift+O`
+- **macOS**: `Cmd+Shift+O`
+
+## Your First Conversation
+
+Type a message in the input area and press Enter. OpenCob operates as an **agentic assistant** — it can:
+
+- Read and write files in your workspace
+- Search for code patterns
+- Run terminal commands
+- Create plans for complex tasks
+
+### Example Prompts
+
+| What you want | What to type |
+|---|---|
+| Understand code | "Explain how the payment processing module works" |
+| Fix a bug | "Fix the null pointer issue in CustomerService.cbl" |
+| Refactor | "Refactor PERFORM-BILLING into smaller paragraphs" |
+| Generate tests | "Write unit tests for the date validation logic" |
+| Complex task | "/plan Modernize the batch reporting module to use REST APIs" |
+
+## Slash Commands
+
+Type `/` in the input to see available commands:
+
+| Command | Description |
+|---|---|
+| `/explain` | Explain selected code or concept |
+| `/fix` | Analyze and fix issues in code |
+| `/refactor` | Refactor code for readability |
+| `/test` | Generate unit tests |
+| `/plan` | Decompose a complex task into steps and execute |
+| `/scan` | Scan project for issues |
+| `/setup` | Create `.opencob/` customization scaffold |
+| `/help` | Show customization guide |
+| `/clear` | Clear the conversation |
+
+## Context References
+
+Use `#` to reference files or folders as context:
+
+```
+Explain #src/billing/payment.cbl focusing on the error handling
+```
+
+Use `@` to reference specific context providers:
+
+```
+@workspace What files handle customer validation?
+```
+
+## Modes
+
+OpenCob has multiple operating modes. Switch using the mode selector at the top of the chat:
+
+- **Code** (default) — reads, writes, and executes tools autonomously
+- **Ask** — answer-only mode, no file modifications
+- **Plan** — creates a task plan, then executes each step
+- **Advanced** — full orchestrator with complex task decomposition
+
+## Tool Approval
+
+By default, OpenCob asks for approval before writing files or running commands. You'll see an approval card with **Accept** / **Reject** buttons.
+
+To auto-approve specific tool categories, go to Settings → `opencob.autoApprove`:
+
+```json
+{
+  "opencob.autoApprove.readOperations": true,
+  "opencob.autoApprove.writeOperations": false,
+  "opencob.autoApprove.commandExecution": false
+}
+```
+
+## Inline Editing
+
+Select code in the editor and press `Ctrl+I` (or `Cmd+I` on macOS) to open the inline edit input. Type your instruction and the agent will modify the selection directly.
+
+## What's Next?
+
+- [Customization](/customization) — Add project-specific instructions
+- [Modes & Agents](/modes) — Deep dive into operating modes
+- [Commands & Shortcuts](/commands) — Full reference

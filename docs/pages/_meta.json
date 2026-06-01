@@ -1,0 +1,19 @@
+{
+  "index": "Introduction",
+  "installation": "Installation",
+  "getting-started": "Getting Started",
+  "chat-panel": "Chat Panel",
+  "customization": "Customization",
+  "modes": "Modes & Agents",
+  "tools": "Tools",
+  "diagrams": "Diagrams",
+  "quality": "Code Quality",
+  "dependencies": "Dependencies",
+  "hooks": "Lifecycle Hooks",
+  "codeowners": "CODEOWNERS Integration",
+  "commands": "Commands & Shortcuts",
+  "mcp": "MCP Servers",
+  "cli": "CLI Usage",
+  "troubleshooting": "Troubleshooting",
+  "changelog": "Changelog"
+}

@@ -1,0 +1,75 @@
+---
+title: Commands & Shortcuts
+description: Complete reference of VS Code commands and keyboard shortcuts for OpenCob
+---
+
+# Commands & Shortcuts
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Shift+O` | Open/focus OpenCob chat panel |
+| `Ctrl+I` | Inline edit (with selection) |
+| `Ctrl+L` | Clear conversation |
+| `Ctrl+F` (in chat) | Search within conversation |
+| `Enter` | Send message |
+| `Shift+Enter` | New line in input |
+| `↑` (empty input) | Edit last user message |
+| `Escape` | Stop current generation / close popups |
+
+## Command Palette Commands
+
+Access via `Ctrl+Shift+P`:
+
+| Command | Description |
+|---|---|
+| `OpenCob: New Conversation` | Start a fresh conversation |
+| `OpenCob: Clear Conversation` | Clear current conversation |
+| `OpenCob: Switch Mode` | Change operating mode |
+| `OpenCob: Switch Model` | Change LLM model |
+| `OpenCob: Undo Last Turn` | Revert the agent's last action |
+| `OpenCob: Export Conversation` | Export chat as Markdown |
+| `OpenCob: Open Settings` | Open OpenCob settings |
+| `OpenCob: Inline Edit` | Start inline edit on selection |
+| `OpenCob: Scan Workspace` | Run findings scanner |
+| `OpenCob: Setup Customization` | Scaffold `.opencob/` directory |
+
+## Slash Commands (In Chat)
+
+| Command | Description |
+|---|---|
+| `/explain` | Explain selected code or concept |
+| `/fix` | Analyze and fix issues |
+| `/refactor` | Refactor for readability |
+| `/test` | Generate unit tests |
+| `/plan` | Complex task with plan execution |
+| `/scan` | Scan project for issues |
+| `/setup` | Create `.opencob/` scaffold with examples |
+| `/help` | Show customization guide |
+| `/clear` | Clear the conversation |
+
+## Context References
+
+| Syntax | What it does |
+|---|---|
+| `#filename` | Attach a file as context |
+| `#folder/` | Attach folder listing as context |
+| `@workspace` | Search across all workspace files |
+
+## Settings Reference
+
+All settings are under the `opencob.*` namespace in VS Code settings:
+
+| Setting | Default | Description |
+|---|---|---|
+| `opencob.provider` | `"openai"` | LLM provider |
+| `opencob.openai.model` | `"gpt-4o"` | OpenAI model name |
+| `opencob.anthropic.model` | `"claude-sonnet-4-20250514"` | Anthropic model |
+| `opencob.autoApprove.readOperations` | `true` | Auto-approve reads |
+| `opencob.autoApprove.writeOperations` | `false` | Auto-approve writes |
+| `opencob.autoApprove.commandExecution` | `false` | Auto-approve commands |
+| `opencob.chat.showThinking` | `true` | Show thinking blocks |
+| `opencob.chat.streaming` | `true` | Stream responses |
+| `opencob.maxToolRounds` | `10` | Max tool calls per turn |
+| `opencob.mcp.servers` | `{}` | MCP server configurations |

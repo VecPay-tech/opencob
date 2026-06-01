@@ -1,0 +1,246 @@
+---
+title: Dependencies
+description: Whole-repo dependency analysis — impact analysis, build ordering, and build script generation for IBM i source
+---
+
+# Dependencies
+
+OpenCob's dependency engine scans an entire repository of IBM i source to build a cross-object dependency graph. It provides impact analysis, topological build ordering, and automated build script generation — compatible with IBM Source Orbit.
+
+## Quick Start
+
+```ts
+import { scanRepo, impactAnalysis, buildOrder, generateBuildScript } from '@opencob/core';
+
+// 1. Scan the repository
+const objects = scanRepo('/path/to/repo');
+
+// 2. What's affected if we change a copybook?
+const impact = impactAnalysis(objects, ['COMMON-WS.cpy']);
+
+// 3. What order should we compile?
+const order = buildOrder(objects);
+
+// 4. Generate a CL build script
+const script = generateBuildScript(objects, 'cl');
+```
+
+## Repository Scanning
+
+`scanRepo()` discovers all eligible source files, extracts cross-references, and builds the dependency graph in memory.
+
+### Supported Source Types
+
+| Category | Extensions |
+|----------|-----------|
+| COBOL | `.cbl`, `.cob`, `.cpy`, `.sqb`, `.pco`, `.sbc`, `.ccp`, `.ccc`, `.cbe`, `.rmc`, `.obs` |
+| CL | `.clle`, `.clp`, `.cmd`, `.mnu` |
+| RPG | `.rpg`, `.rpgle`, `.sqlrpgle`, `.sqlrpg` |
+| DDS | `.pf`, `.lf`, `.dspf`, `.prtf`, `.dds` |
+| PL/I | `.pli`, `.pl1`, `.inc` |
+| Other | `.map`, `.asm`, `.rma` |
+
+### Reference Types Detected
+
+| Reference | Source | Example |
+|-----------|--------|---------|
+| COPY | COBOL | `COPY COMMON-WS` |
+| CALL | COBOL/CL | `CALL 'PGM001'` |
+| CICS LINK | COBOL | `EXEC CICS LINK PROGRAM('X')` |
+| CICS XCTL | COBOL | `EXEC CICS XCTL PROGRAM('X')` |
+| DCLF | CL | `DCLF FILE(CUSTPF)` |
+| REF | DDS | `REF(CUSTPF)` |
+| REFFLD | DDS | `REFFLD(FIELD FILE)` |
+| SBMJOB | CL | `SBMJOB CMD(CALL PGM(X))` |
+| file_select | COBOL | `SELECT F ASSIGN TO CUSTPF` |
+
+### .objrefs Support
+
+External object declarations (objects not in your source tree but referenced) can be listed in a `.objrefs` file at the repo root:
+
+```
+EXTPGM.PGM
+SYSFILE.FILE
+SHAREDCPY.COPY
+```
+
+These appear in the graph as reference nodes so impact analysis doesn't show them as "unresolved".
+
+## Impact Analysis
+
+Given one or more changed files, find everything transitively affected:
+
+```ts
+const impact = impactAnalysis(objects, ['CUSTPF.pf', 'COMMON-WS.cpy']);
+
+impact.changed;              // ['custpf', 'common-ws']
+impact.directlyAffected;     // programs that directly use these
+impact.transitivelyAffected; // programs affected via chain
+impact.affectedPrograms;     // only compilable programs (not copybooks)
+impact.totalAffected;        // total count
+impact.buildOrder;           // suggested compile sequence for affected items
+impact.byDepth;              // grouped by BFS depth (0=changed, 1=direct, 2+=transitive)
+```
+
+### Impact Markdown
+
+Generate a Source Orbit compatible impact report:
+
+```ts
+const md = impactMarkdown(objects, ['CUSTPF.pf']);
+// Returns markdown with tree-structured impact chain
+```
+
+## Dependency Tree
+
+Explore what an object depends on (downstream) or what depends on it (upstream):
+
+```ts
+const tree = dependencyTree(objects, 'PGM001', 'down');  // what does PGM001 need?
+const tree = dependencyTree(objects, 'CUSTPF', 'up');    // what uses CUSTPF?
+```
+
+Returns a recursive tree structure with `maxDepth` limiting (default 10).
+
+## Build Order
+
+Topological sort via Kahn's algorithm determines safe compile sequence:
+
+```ts
+const result = buildOrder(objects);
+
+result.order;       // ['custpf', 'custlf', 'pgm001', 'pgm002', ...]
+result.totalObjects; // compilable objects (COPY excluded)
+result.levels;      // { custpf: 0, pgm001: 1, ... }
+result.buildSteps;  // [{ step: 1, name, objectType, library, relPath }, ...]
+result.cycles;      // objects caught in circular dependencies
+```
+
+### Scoped Builds
+
+Only build a subset and its transitive dependencies:
+
+```ts
+const result = buildOrder(objects, ['pgm001', 'pgm002']);
+// Includes pgm001, pgm002, and everything they depend on
+```
+
+### Cycle Detection
+
+If circular dependencies exist, they appear in `result.cycles`. Objects in cycles cannot be topologically sorted and require manual intervention.
+
+## Build Script Generation
+
+Generate ready-to-run compile scripts:
+
+### CL Format
+
+```ts
+const { script } = generateBuildScript(objects, 'cl');
+```
+
+Produces:
+
+```cl
+/* ============================================= */
+/* OpenCob Auto-Generated Build Script           */
+/* ============================================= */
+
+CRTPF FILE(MYLIB/CUSTPF) SRCFILE(MYLIB/QDDSSRC) SRCMBR(CUSTPF)
+CRTLF FILE(MYLIB/CUSTLF) SRCFILE(MYLIB/QDDSSRC) SRCMBR(CUSTLF)
+CRTBNDCBL PGM(MYLIB/PGM001) SRCFILE(MYLIB/QCBLSRC) SRCMBR(PGM001)
+```
+
+### JSON Format
+
+```ts
+const { steps } = generateBuildScript(objects, 'json');
+```
+
+Returns structured steps for CI/CD pipelines:
+
+```json
+[
+  { "step": 1, "command": "CRTPF", "object": "CUSTPF", "library": "MYLIB", ... },
+  { "step": 2, "command": "CRTBNDCBL", "object": "PGM001", "library": "MYLIB", ... }
+]
+```
+
+### Compile Command Mapping
+
+| Object Type | Command |
+|-------------|---------|
+| PGM (COBOL) | `CRTBNDCBL` |
+| PGM (CL) | `CRTBNDCL` |
+| FILE (PF) | `CRTPF` |
+| FILE (LF) | `CRTLF` |
+| DSPF | `CRTDSPF` |
+| PRTF | `CRTPRTF` |
+| CMD | `CRTCMD` |
+| MNU | `CRTMNU` |
+
+## Repository Summary
+
+Get a high-level overview of the repo's structure:
+
+```ts
+const summary = repoSummary(objects);
+
+summary.totalObjects;     // 450
+summary.totalEdges;       // 1200
+summary.byObjectType;     // { PGM: 200, COPY: 150, FILE: 80, ... }
+summary.byLibrary;        // { MYLIB: 300, SHRLIB: 150 }
+summary.orphansCount;     // objects with no connections
+summary.mostDependedOn;   // [{ name: 'COMMON-WS', dependedByCount: 85 }, ...]
+```
+
+## Unresolved References
+
+Find references pointing to objects not in the scanned repo:
+
+```ts
+const unresolved = unresolvedReferences(objects);
+// [{ name: 'EXTPGM', referencedByCount: 5, referencedBy: ['pgm1', 'pgm2', ...] }]
+```
+
+Use this to identify missing copybooks, external programs, or objects that should be added to `.objrefs`.
+
+## Object Type Inference
+
+The engine automatically infers IBM i object types from file extensions:
+
+| Extension | Inferred Type |
+|-----------|--------------|
+| `.cbl`, `.cob`, `.sqb` | PGM |
+| `.clle`, `.clp` | PGM |
+| `.cpy`, `.inc` | COPY |
+| `.pf`, `.dds` | FILE |
+| `.lf` | FILE |
+| `.dspf` | DSPF |
+| `.prtf` | PRTF |
+| `.cmd` | CMD |
+| `.mnu` | MNU |
+| `.rpgle` | PGM |
+
+## API Reference
+
+```ts
+// Scanning
+scanRepo(repoRoot: string, progressCb?): Map<string, SourceObject>
+
+// Queries
+dependencyTree(objects, target, direction?, maxDepth?): DependencyTreeNode
+impactAnalysis(objects, changedFiles: string[]): ImpactResult
+repoSummary(objects): RepoSummary
+unresolvedReferences(objects): UnresolvedRef[]
+
+// Build
+buildOrder(objects, scope?: string[]): BuildOrderResult
+generateBuildScript(objects, format: 'cl' | 'json', scope?): BuildScriptResult
+
+// Reports
+impactMarkdown(objects, changedFiles: string[]): string
+
+// Utilities
+inferObjectType(sourceType, ext, category): ObjectType
+```

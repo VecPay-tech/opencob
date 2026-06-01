@@ -1,0 +1,110 @@
+---
+title: Installation
+description: Install OpenCob VS Code extension and configure your LLM provider
+---
+
+# Installation
+
+## Prerequisites
+
+- **VS Code** 1.100.0 or later
+- **Node.js** 22+ (for CLI usage)
+- An API key for at least one LLM provider (OpenAI, Anthropic, Azure OpenAI, Ollama, or OpenRouter)
+
+## Install from VSIX (Local)
+
+1. Download or build the `.vsix` file
+2. In VS Code, open the Command Palette (`Ctrl+Shift+P`)
+3. Run **Extensions: Install from VSIX...**
+4. Select the `opencob-*.vsix` file
+
+Or from the terminal:
+
+```bash
+code --install-extension opencob-0.1.0.vsix
+```
+
+## Install from Marketplace
+
+> Coming soon — OpenCob will be published to the VS Code Marketplace.
+
+## Configure LLM Provider
+
+Open VS Code Settings (`Ctrl+,`) and search for `opencob`:
+
+### OpenAI
+
+```json
+{
+  "opencob.provider": "openai",
+  "opencob.openai.apiKey": "sk-...",
+  "opencob.openai.model": "gpt-4o"
+}
+```
+
+### Anthropic
+
+```json
+{
+  "opencob.provider": "anthropic",
+  "opencob.anthropic.apiKey": "sk-ant-...",
+  "opencob.anthropic.model": "claude-sonnet-4-20250514"
+}
+```
+
+### Azure OpenAI
+
+```json
+{
+  "opencob.provider": "azure",
+  "opencob.azure.endpoint": "https://your-resource.openai.azure.com",
+  "opencob.azure.apiKey": "...",
+  "opencob.azure.deploymentName": "gpt-4o"
+}
+```
+
+### Ollama (Local)
+
+```json
+{
+  "opencob.provider": "ollama",
+  "opencob.ollama.baseUrl": "http://localhost:11434",
+  "opencob.ollama.model": "qwen2.5-coder:32b"
+}
+```
+
+### OpenRouter
+
+```json
+{
+  "opencob.provider": "openrouter",
+  "opencob.openrouter.apiKey": "sk-or-...",
+  "opencob.openrouter.model": "anthropic/claude-sonnet-4-20250514"
+}
+```
+
+## Verify Installation
+
+1. Open the OpenCob panel from the Activity Bar (bug icon on the left)
+2. You should see the chat interface with a green connection indicator
+3. Type "Hello" and press Enter — the agent should respond
+
+## Build from Source
+
+```bash
+git clone https://github.com/mountek/opencob.git
+cd opencob
+pnpm install
+pnpm build
+cd packages/extension
+pnpm package
+code --install-extension opencob-0.1.0.vsix
+```
+
+## Uninstall
+
+```bash
+code --uninstall-extension mountek.opencob
+```
+
+Or via the Extensions sidebar → right-click OpenCob → Uninstall.

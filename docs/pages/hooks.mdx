@@ -1,0 +1,145 @@
+---
+title: Lifecycle Hooks
+description: Inject instructions at specific points in the agent loop using event-driven hooks
+---
+
+# Lifecycle Hooks
+
+Hooks are event-driven instructions that fire at specific points in the agent's processing loop. Unlike scoped instructions (which are always present when files match), hooks only inject their content when a specific event occurs.
+
+## Creating a Hook
+
+Create `.md` files in `.opencob/hooks/`:
+
+```markdown
+---
+event: onFileChange
+applyTo: "src/**/*.ts"
+description: Remind about tests when source files change
+---
+
+When modifying source files, check if a corresponding test file exists.
+If it does, update the tests to reflect the changes.
+If it doesn't, suggest creating one.
+```
+
+## Hook Events
+
+| Event | When it fires | Context available |
+|---|---|---|
+| `onFileChange` | After the agent modifies a file | `filePath` |
+| `onFileSave` | After a file is saved to disk | `filePath` |
+| `onChatStart` | At the start of each conversation turn | — |
+| `onChatEnd` | After a conversation turn completes | — |
+| `onToolCallBefore` | Before any tool is executed | `toolName`, `filePath` |
+| `onToolCallAfter` | After a tool finishes executing | `toolName`, `filePath`, `success` |
+| `onModeSwitch` | When the agent switches operating modes | `mode` |
+| `onPlanCreated` | After a task plan is decomposed | — |
+| `onError` | When an error occurs during processing | `error` |
+
+## Frontmatter Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `event` | ✓ | The lifecycle event that triggers this hook |
+| `applyTo` | | Glob pattern — hook only fires when the involved file matches |
+| `name` | | Hook name (defaults to filename) |
+| `description` | | Human-readable description |
+
+## Examples
+
+### Security Gate
+
+Inject a security reminder before any file write:
+
+```markdown
+---
+event: onToolCallBefore
+description: Security review before file modifications
+---
+
+Before writing to any file, verify:
+- No secrets, API keys, or credentials are being written
+- No SQL injection vectors are introduced
+- Input validation is present for user-facing code
+- File permissions are not being weakened
+```
+
+### Test Enforcement
+
+Require tests when modifying source code:
+
+```markdown
+---
+event: onFileChange
+applyTo: "src/**/*.ts"
+description: Enforce test coverage for source changes
+---
+
+A source file was modified. Ensure:
+1. The corresponding test file is updated or created
+2. New branches/paths have test coverage
+3. Edge cases are considered
+```
+
+### Architecture Guard
+
+Prevent certain patterns:
+
+```markdown
+---
+event: onFileChange
+applyTo: "packages/core/**"
+description: Core package architecture rules
+---
+
+The core package was modified. Verify:
+- No direct `vscode` imports (core must be editor-agnostic)
+- No circular dependencies introduced
+- Public API changes are backward-compatible
+- Exports are updated in index.ts if new modules added
+```
+
+### Plan Review
+
+Add context when plans are created:
+
+```markdown
+---
+event: onPlanCreated
+description: Plan quality checklist
+---
+
+Review the generated plan against:
+- Each step should be independently testable
+- Steps should be ordered by dependency (no forward refs)
+- Include a verification step at the end
+- Consider rollback strategy for destructive operations
+```
+
+## Hook Resolution
+
+When an event fires:
+
+1. All hooks matching the event type are collected
+2. If `applyTo` is specified, the involved file path is tested against the glob
+3. Matching hooks have their body injected as additional context
+4. Multiple hooks can fire for the same event
+
+## Global Hooks
+
+Place hooks in `~/.opencob/hooks/` to apply across all projects:
+
+```
+~/.opencob/
+└── hooks/
+    └── personal-style.md   # Your coding preferences, always active
+```
+
+## Tips
+
+- Keep hook bodies short — they add to every qualifying interaction
+- Use `applyTo` to avoid noisy hooks firing on irrelevant files
+- `onChatStart` hooks are good for "always remind me about X" patterns
+- `onToolCallBefore` hooks act as guardrails before destructive actions
+- Combine with CODEOWNERS scoping in instructions for team-specific hooks

@@ -1,0 +1,114 @@
+---
+title: Chat Panel
+description: The main OpenCob interface — features, UX components, and interaction patterns
+---
+
+# Chat Panel
+
+The Chat Panel is the primary interface for interacting with OpenCob. It lives in the VS Code sidebar and provides a rich conversation experience.
+
+## Panel Layout
+
+```
+┌─────────────────────────────────┐
+│ [Mode ▾] [Model ▾]   [⚙] [+]  │  ← Header bar
+├─────────────────────────────────┤
+│                                 │
+│  Welcome / Messages area        │
+│                                 │
+│  ┌─ Thinking block ──────────┐  │
+│  │ Analyzing file structure… │  │
+│  └───────────────────────────┘  │
+│                                 │
+│  ┌─ Tool call ───────────────┐  │
+│  │ 📂 read_file: src/app.ts │  │
+│  └───────────────────────────┘  │
+│                                 │
+│  ┌─ Changes Summary ─────────┐  │
+│  │ 3 files · +45 −12 lines  │  │
+│  └───────────────────────────┘  │
+│                                 │
+├─────────────────────────────────┤
+│ [# context] [@ mention]        │  ← Context chips
+│ ┌───────────────────────── ⏎ ┐  │
+│ │ Type your message...        │  │  ← Input area
+│ └─────────────────────────────┘  │
+│ [Mode] [Turns: 3]   [Enhance]  │  ← Footer bar
+└─────────────────────────────────┘
+```
+
+## Thinking Blocks
+
+When the model is reasoning, you'll see a collapsible thinking block showing the agent's internal reasoning process. This includes:
+
+- Phase indicators (gathering context, planning, writing code, verifying)
+- Step-by-step reasoning text
+- Tool execution status
+
+Toggle thinking visibility in settings (`opencob.chat.showThinking`).
+
+## Plan Cards
+
+When using `/plan` or orchestrator mode, a plan card appears showing:
+
+- **Goal** — what the plan is trying to achieve
+- **Steps** — numbered subtasks with status indicators
+  - ⏳ Pending
+  - 🔄 Running
+  - ✓ Done
+  - ✗ Failed
+
+Each step expands to show its execution summary.
+
+## Changes Summary
+
+After the agent modifies files, a compact changes summary bar appears:
+
+```
+3 files changed · +45 −12 lines
+├── src/billing/payment.ts  M  +30 −8
+├── src/billing/types.ts    M  +10 −4
+└── tests/payment.test.ts   A  +5 −0
+```
+
+Click any file path to open it in the editor.
+
+## Tool Approval Cards
+
+When the agent wants to execute a tool that requires approval:
+
+```
+┌──────────────────────────────────┐
+│ write_to_file                    │
+│ src/billing/payment.ts           │
+│                                  │
+│    [Accept]  [Reject]  [Always]  │
+└──────────────────────────────────┘
+```
+
+- **Accept** — allow this one execution
+- **Reject** — deny and let the agent try another approach
+- **Always** — auto-approve this tool type for the session
+
+## Edit & Replace
+
+Click the pencil icon on any of your previous messages to edit and re-send. The conversation rewinds to that point and the agent processes your updated message.
+
+## File Drag & Drop
+
+Drag files from the Explorer into the chat panel to attach them as context. They appear as removable chips above the input area.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Enter` | Send message |
+| `Shift+Enter` | New line in input |
+| `↑` (empty input) | Edit last message |
+| `Ctrl+L` | Clear conversation |
+| `Ctrl+F` | Search in conversation |
+| `Escape` | Cancel current operation |
+
+## Conversation History
+
+Click the history icon in the header to browse and resume previous conversations. Conversations are auto-titled based on the first message.

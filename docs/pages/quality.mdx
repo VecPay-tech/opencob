@@ -1,0 +1,191 @@
+---
+title: Code Quality
+description: Configurable quality rules engine with built-in checkers, presets, and Enterprise Edition rule pack support
+---
+
+# Code Quality
+
+OpenCob includes a static analysis engine that scans COBOL, CL, RPG, and DDS source for maintainability, complexity, and bug-risk issues — similar to SonarQube but purpose-built for IBM i legacy code.
+
+## Quick Start
+
+Quality scanning works out of the box with sensible defaults. No configuration required.
+
+```ts
+import { scanFileQuality, DEFAULT_RULES } from '@opencob/core';
+
+const issues = scanFileQuality(sourceContent, 'MYPROGRAM.cbl');
+// → [{ ruleCode: 'NEST001', line: 42, message: 'IF nesting depth 5 exceeds max 4', ... }]
+```
+
+## Checkers
+
+Nine built-in checkers cover the most impactful code quality dimensions:
+
+| Checker | What it detects |
+|---------|-----------------|
+| `structure_count` | Too many paragraphs, sections, COPY, PERFORM, or CALL statements |
+| `block_size` | Oversized paragraphs or sections exceeding a line count threshold |
+| `nesting_depth` | Deeply nested IF/PERFORM blocks (McCabe-adjacent) |
+| `unused_detection` | Dead code — unreferenced paragraphs, data items, or 88-level conditions |
+| `naming_convention` | Identifiers not matching a team-defined regex pattern |
+| `documentation_check` | Missing preceding comments on paragraphs or sections |
+| `program_id_filename` | PROGRAM-ID value doesn't match the source file name |
+| `duplicate_detection` | Repeated string literals that should be constants |
+| `move_analysis` | Self-assignment MOVE statements (bug-risk) |
+
+## Default Rules
+
+13 rules ship out of the box:
+
+| Code | Name | Severity | Default Threshold |
+|------|------|----------|-------------------|
+| STRUC001 | Too many paragraphs | medium | max 30 |
+| STRUC002 | Too many COPY statements | low | max 20 |
+| SIZE001 | Paragraph too large | medium | max 60 lines |
+| SIZE002 | Section too large | medium | max 200 lines |
+| NEST001 | Deeply nested IF | high | max depth 4 |
+| DEAD001 | Unused paragraph | medium | — |
+| DEAD002 | Unused data item | low | — |
+| DEAD003 | Unused condition name | low | — |
+| NAME001 | Paragraph naming convention | low | disabled |
+| DOC001 | Missing paragraph comment | info | disabled |
+| ID001 | PROGRAM-ID mismatch | medium | — |
+| DUP001 | Duplicate string literal | low | max 3 occurrences |
+| MOVE001 | Self-assignment MOVE | medium | — |
+
+## Configuration
+
+Create a `.opencob-rules.json` in your workspace root to customize rules:
+
+```jsonc
+{
+  // Base preset to extend
+  "extends": ["opencob:recommended"],
+
+  // Per-rule overrides
+  "rules": {
+    "NEST001": {
+      "severity": "critical",
+      "params": { "max_depth": 3 }
+    },
+    "STRUC001": { "enabled": false },
+    "SIZE001": { "params": { "max_lines": 40 } },
+    "NAME001": {
+      "enabled": true,
+      "params": { "pattern": "^[0-9]{4}-[A-Z][A-Z0-9-]*$" }
+    }
+  }
+}
+```
+
+### Config File Locations
+
+The loader searches these paths in order (first found wins):
+
+1. `.opencob-rules.json`
+2. `.opencob-rules.jsonc`
+3. `.opencob/rules.json`
+
+### Override Options
+
+Each rule override supports:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `enabled` | boolean | Enable or disable the rule |
+| `severity` | string | `blocker`, `critical`, `high`, `medium`, `low`, `info` |
+| `params` | object | Checker-specific parameters (thresholds, patterns) |
+| `maxPerFile` | number | Cap issues reported per file for this rule |
+| `debtMinutes` | number | Technical debt estimate per occurrence |
+
+## Built-in Presets
+
+Three presets are available via the `extends` array:
+
+### `opencob:recommended` (default)
+
+The standard rule set — all rules enabled except `NAME001` (naming) and `DOC001` (documentation).
+
+### `opencob:strict`
+
+All rules enabled with tighter thresholds:
+- Nesting max depth → 3 (instead of 4)
+- Paragraph max lines → 40 (instead of 60)
+- Naming convention and documentation checks enabled
+
+### `opencob:minimal`
+
+Only three critical rules: `NEST001`, `ID001`, `MOVE001`. Good for gradual adoption.
+
+## Enterprise Edition Integration
+
+Teams using OpenCob EE can download centrally-managed rule packs from the server:
+
+```jsonc
+{
+  "extends": ["opencob:recommended", "ee"],
+
+  // EE server connection
+  "eeServer": "https://opencob-ee.company.com",
+  "eeToken": "your-api-token"
+}
+```
+
+### How It Works
+
+1. The loader calls `GET /api/v1/quality/rules` on your EE server
+2. Rules with recognized checker IDs are merged into your local set
+3. Local `rules` overrides still apply on top (local config wins)
+
+### Authentication
+
+Set the token via:
+- `"eeToken"` in the config file
+- `OPENCOB_EE_TOKEN` environment variable
+- Or use `OPENCOB_EE_URL` env var to set the server URL without a config file
+
+### What Syncs from EE
+
+Only rules whose `checkerId` matches one of the 9 built-in checkers are usable locally. Rules with custom/proprietary checkers are skipped gracefully — no errors, just a reduced set.
+
+## Multi-File Scanning
+
+Scan entire directories and get aggregate metrics:
+
+```ts
+import { scanQuality } from '@opencob/core';
+
+const result = scanQuality([
+  { content: src1, filename: 'PGM001.cbl' },
+  { content: src2, filename: 'PGM002.cbl' },
+]);
+
+console.log(result.issuesCount);   // total issues
+console.log(result.highCount);     // high-severity count
+console.log(result.totalDebt);     // minutes of technical debt
+```
+
+## Technical Debt
+
+Every rule carries a `debtMinutes` estimate — the approximate remediation time per occurrence. The scanner sums these across all issues to produce a total debt figure, useful for sprint planning and executive dashboards.
+
+## API Reference
+
+```ts
+// Single file
+scanFileQuality(content: string, filename: string, rules?: QualityRule[]): QualityIssue[]
+
+// Multi-file with aggregation
+scanQuality(files: Array<{content, filename}>, rules?: QualityRule[]): QualityScanResult
+
+// Rule loading
+loadRules(workspaceRoot: string): Promise<RuleLoadResult>      // async (supports EE)
+loadRulesSync(workspaceRoot: string): RuleLoadResult           // sync (local only)
+
+// Utilities
+getAvailableCheckers(): string[]
+getAvailablePresets(): string[]
+fetchEeRules(serverUrl: string, token?: string): Promise<{rules, error?}>
+convertEeRules(remote: EeRemoteRule[]): QualityRule[]
+```

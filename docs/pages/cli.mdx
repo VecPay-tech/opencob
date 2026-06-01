@@ -1,0 +1,125 @@
+---
+title: CLI Usage
+description: Use OpenCob from the command line for scripting, CI/CD, and headless operation
+---
+
+# CLI Usage
+
+The `@opencob/cli` package provides a command-line interface for OpenCob, enabling scripting and CI/CD integration.
+
+## Installation
+
+```bash
+# Global install
+pnpm add -g @opencob/cli
+
+# Or run directly
+npx @opencob/cli
+```
+
+## Interactive Mode (REPL)
+
+Start an interactive session:
+
+```bash
+opencob
+```
+
+This opens a REPL where you can type messages and the agent responds with tool execution:
+
+```
+🤖 OpenCob CLI v0.1.0
+Type /help for commands, /quit to exit
+
+> Explain the structure of this project
+Analyzing workspace...
+[read_file] package.json
+[list_directory] src/
+
+This is a TypeScript monorepo with three packages...
+
+> /mode ask
+Switched to ask mode
+
+> What testing framework does this project use?
+Based on package.json, this project uses Vitest for testing...
+```
+
+## Headless Mode
+
+Run a single task without interaction:
+
+```bash
+opencob --task "Add input validation to all API endpoints" --mode code
+```
+
+Options:
+
+| Flag | Description |
+|---|---|
+| `--task` | Task description to execute |
+| `--mode` | Operating mode (code, ask, plan, advanced) |
+| `--model` | LLM model to use |
+| `--provider` | LLM provider |
+| `--workspace` | Workspace root (default: cwd) |
+| `--auto-approve` | Skip tool approval prompts |
+| `--output` | Output format: text, json, markdown |
+| `--max-rounds` | Maximum tool execution rounds |
+
+## CI/CD Integration
+
+Use headless mode in CI pipelines:
+
+```yaml
+# GitHub Actions example
+- name: Auto-fix lint issues
+  run: |
+    npx @opencob/cli --task "Fix all ESLint errors" \
+      --mode code \
+      --auto-approve \
+      --max-rounds 5
+  env:
+    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+```
+
+## REPL Commands
+
+| Command | Description |
+|---|---|
+| `/help` | Show available commands |
+| `/mode <name>` | Switch operating mode |
+| `/model <name>` | Switch LLM model |
+| `/clear` | Clear conversation |
+| `/history` | Show conversation history |
+| `/export` | Export conversation as markdown |
+| `/quit` | Exit the CLI |
+
+## Configuration
+
+The CLI reads configuration from:
+
+1. `.opencob/config.json` in the workspace
+2. `~/.opencob/config.json` for global defaults
+3. Environment variables (`OPENCOB_PROVIDER`, `OPENCOB_MODEL`, etc.)
+4. Command-line flags (highest priority)
+
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-4-20250514",
+  "maxToolRounds": 10,
+  "autoApprove": false
+}
+```
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `OPENCOB_PROVIDER` | LLM provider name |
+| `OPENCOB_MODEL` | Model name |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `AZURE_OPENAI_ENDPOINT` | Azure endpoint |
+| `AZURE_OPENAI_KEY` | Azure API key |
+| `OPENROUTER_API_KEY` | OpenRouter API key |

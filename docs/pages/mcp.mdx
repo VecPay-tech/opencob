@@ -1,0 +1,120 @@
+---
+title: MCP Servers
+description: Extend OpenCob's capabilities by connecting external tool servers via Model Context Protocol
+---
+
+# MCP Servers
+
+Model Context Protocol (MCP) allows you to connect external tool servers that extend the agent's capabilities beyond built-in tools.
+
+## What is MCP?
+
+MCP is an open protocol for connecting AI agents to external tools and data sources. Each MCP server exposes a set of tools that the agent can invoke.
+
+## Configuration
+
+Configure MCP servers in VS Code settings:
+
+```json
+{
+  "opencob.mcp.servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+      "description": "File system access"
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
+      },
+      "description": "GitHub API access"
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost:5432/mydb"],
+      "description": "PostgreSQL database access"
+    }
+  }
+}
+```
+
+Or in `.opencob/mcp.json` for project-scoped servers:
+
+```json
+{
+  "servers": {
+    "my-api": {
+      "command": "node",
+      "args": ["./tools/mcp-server.js"],
+      "description": "Custom project API tools"
+    }
+  }
+}
+```
+
+## Server Lifecycle
+
+1. MCP servers start automatically when OpenCob activates
+2. Their tools appear in the agent's tool registry
+3. Tools require the same approval flow as built-in tools
+4. Servers restart automatically on crash (with backoff)
+
+## Available MCP Servers
+
+Popular community MCP servers:
+
+| Server | Purpose |
+|---|---|
+| `@modelcontextprotocol/server-filesystem` | File system operations |
+| `@modelcontextprotocol/server-github` | GitHub issues, PRs, repos |
+| `@modelcontextprotocol/server-postgres` | PostgreSQL queries |
+| `@modelcontextprotocol/server-sqlite` | SQLite database |
+| `@modelcontextprotocol/server-brave-search` | Web search |
+| `@modelcontextprotocol/server-puppeteer` | Browser automation |
+
+## Building Custom MCP Servers
+
+Create a custom MCP server for your project's specific needs:
+
+```typescript
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+
+const server = new Server({
+  name: 'my-tools',
+  version: '1.0.0',
+}, {
+  capabilities: { tools: {} }
+});
+
+server.setRequestHandler('tools/list', async () => ({
+  tools: [{
+    name: 'query_inventory',
+    description: 'Query the inventory management system',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        productId: { type: 'string', description: 'Product ID to look up' }
+      },
+      required: ['productId']
+    }
+  }]
+}));
+
+server.setRequestHandler('tools/call', async (request) => {
+  // Handle tool execution
+  return { content: [{ type: 'text', text: 'Result...' }] };
+});
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+```
+
+## Security
+
+- MCP servers run as separate processes with their own permissions
+- Environment variables are resolved from VS Code's environment
+- Sensitive values should use `${env:VAR_NAME}` syntax, never hardcoded
+- Tool calls from MCP servers follow the same approval flow as built-in tools

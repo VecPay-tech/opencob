@@ -1,0 +1,137 @@
+---
+title: CODEOWNERS Integration
+description: Scope instructions to team ownership using CODEOWNERS file patterns
+---
+
+# CODEOWNERS Integration
+
+OpenCob reads your project's `CODEOWNERS` file to enable team-scoped instructions. This means different coding standards can apply automatically based on who owns the file being worked on.
+
+## How It Works
+
+1. OpenCob looks for a CODEOWNERS file in these locations (first found wins):
+   - `.opencob/CODEOWNERS`
+   - `.github/CODEOWNERS`
+   - `CODEOWNERS` (root)
+
+2. Instructions with an `owner` field only activate when active files match that owner's patterns
+
+3. Last matching rule wins (same as GitHub's CODEOWNERS behavior)
+
+## CODEOWNERS File Format
+
+Standard GitHub CODEOWNERS syntax:
+
+```
+# Default owner for everything
+*                       @platform-team
+
+# Frontend
+src/components/**       @frontend-team
+src/styles/**           @frontend-team
+
+# Backend API
+src/api/**              @backend-team
+src/services/**         @backend-team
+
+# Database
+src/db/**               @dba-team
+migrations/**           @dba-team
+
+# DevOps
+deploy/**               @devops
+.github/**              @devops
+Dockerfile              @devops
+```
+
+## Owner-Scoped Instructions
+
+Add `owner` to your instruction frontmatter:
+
+```markdown
+---
+applyTo: "**/*.ts"
+owner: backend-team
+description: Backend coding standards
+---
+
+## Backend Standards
+
+- Use dependency injection via constructor parameters
+- All database queries must go through the repository layer
+- Use transactions for multi-step operations
+- Log all external API calls with correlation IDs
+```
+
+This instruction only activates when:
+- An active file matches `**/*.ts` AND
+- That file is owned by `backend-team` in CODEOWNERS
+
+## Example Setup
+
+Given this CODEOWNERS:
+```
+src/api/**      @backend-team
+src/web/**      @frontend-team
+```
+
+And these instructions:
+
+**.opencob/instructions/backend.instructions.md**
+```markdown
+---
+applyTo: "src/**"
+owner: backend-team
+---
+Use repository pattern. No direct DB access from controllers.
+```
+
+**.opencob/instructions/frontend.instructions.md**
+```markdown
+---
+applyTo: "src/**"
+owner: frontend-team
+---
+Use React hooks. No class components. CSS modules only.
+```
+
+When working on `src/api/users.ts`:
+- ✅ Backend instruction activates (file matches applyTo + is owned by backend-team)
+- ❌ Frontend instruction does NOT activate (file is not owned by frontend-team)
+
+When working on `src/web/Dashboard.tsx`:
+- ❌ Backend instruction does NOT activate
+- ✅ Frontend instruction activates
+
+## Without Owner Field
+
+Instructions without `owner` work the same as before — they activate purely based on `applyTo` pattern matching regardless of CODEOWNERS.
+
+## API Access
+
+The CODEOWNERS resolver is available programmatically:
+
+```typescript
+import { CodeOwnersResolver } from '@opencob/core';
+
+const resolver = new CodeOwnersResolver('/path/to/workspace');
+
+// Get owners for a file
+resolver.getOwners('/path/to/workspace/src/api/users.ts');
+// → ['backend-team']
+
+// Check if a file is owned by a specific team
+resolver.isOwnedBy('/path/to/workspace/src/api/users.ts', 'backend-team');
+// → true
+
+// Get all patterns for an owner
+resolver.getPatternsForOwner('frontend-team');
+// → ['src/components/**', 'src/styles/**']
+```
+
+## Tips
+
+- CODEOWNERS patterns use the same glob syntax as `.gitignore`
+- The `@` prefix on owner names is optional (both `@team` and `team` work)
+- If no CODEOWNERS file exists, the `owner` field is ignored (instruction activates based on `applyTo` only)
+- Use this for large teams where different groups have different coding standards

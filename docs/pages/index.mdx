@@ -1,0 +1,45 @@
+---
+title: OpenCob — AI-Powered COBOL Assistant
+description: Intelligent code analysis, refactoring, and modernization for COBOL systems
+---
+
+# OpenCob
+
+OpenCob is an AI-powered VS Code extension for COBOL analysis, refactoring, and modernization. It provides an agentic chat interface that can read, write, and reason about code autonomously.
+
+## Key Features
+
+- **Agentic Chat** — multi-turn conversations with tool use (read/write files, search, run commands)
+- **Orchestrator Mode** — decomposes complex tasks into subtask plans and executes them
+- **Customizable Instructions** — scope project rules to file patterns, teams, and lifecycle events
+- **Multiple LLM Backends** — OpenAI, Anthropic, Azure OpenAI, Ollama, OpenRouter
+- **MCP Integration** — connect external tool servers via Model Context Protocol
+- **Inline Editing** — Cmd/Ctrl+I for quick edits in the editor
+- **COBOL-Specific Tools** — copybook resolution, paragraph analysis, data division parsing
+
+## Quick Links
+
+- [Installation](/installation) — Get up and running in 2 minutes
+- [Getting Started](/getting-started) — Your first conversation
+- [Customization](/customization) — Tailor OpenCob to your project
+- [Commands & Shortcuts](/commands) — All available actions
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  VS Code Extension (@opencob/extension)         │
+│  ┌───────────┐ ┌──────────┐ ┌───────────────┐  │
+│  │ Chat Panel│ │ Inline   │ │ Activity Panel│  │
+│  │           │ │ Edit     │ │               │  │
+│  └─────┬─────┘ └────┬─────┘ └───────┬───────┘  │
+│        └─────────────┼───────────────┘          │
+│                      ▼                          │
+│  ┌─────────────────────────────────────────┐    │
+│  │  @opencob/core                          │    │
+│  │  AgentLoop → ModeEngine → ToolRegistry  │    │
+│  │  LLM Adapters → Customization Loader    │    │
+│  │  HooksEngine → CodeOwnersResolver       │    │
+│  └─────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────┘
+```
