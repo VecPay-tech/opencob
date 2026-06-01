@@ -31,12 +31,14 @@ export interface CobolProgram {
   filePath: string;
   divisions: { name: string; line: number }[];
   paragraphs: CobolParagraph[];
-  sections: Array<{ name: string; line: number }>;
+  sections: Array<{ name: string; line: number; endLine: number }>;
   copybooks: CobolCopybook[];
   dataItems: CobolDataItem[];
   execCics: Array<{ command: string; line: number }>;
   execSql: Array<{ statement: string; line: number }>;
   callStatements: Array<{ target: string; line: number }>;
+  /** All PERFORM/GOTO references with source line (populated in second pass) */
+  flowReferences: Array<{ target: string; refType: 'perform' | 'goto'; line: number }>;
 }
 
 /**
@@ -64,6 +66,7 @@ export class CobolParser {
       execCics: [],
       execSql: [],
       callStatements: [],
+      flowReferences: [],
     };
 
     let inProcedureDivision = false;
@@ -74,8 +77,9 @@ export class CobolParser {
       const lineNum = i + 1;
 
       // Skip sequence number area (columns 1-6) and indicator (column 7)
-      // COBOL standard: columns 7-72 are the text area
-      const line = raw.length > 6 ? raw.substring(6) : raw;
+      // COBOL standard: columns 7-72 are the text area, 73-80 are sequence numbers
+      const line =
+        raw.length >= 72 ? raw.substring(6, 72) : raw.length > 6 ? raw.substring(6) : raw;
       const indicator = line.length > 0 ? line[0] : ' ';
 
       // Skip comment lines
@@ -153,34 +157,78 @@ export class CobolParser {
       // Sections in PROCEDURE DIVISION
       const sectionMatch = textUpper.match(/^(\S+)\s+SECTION\s*\./);
       if (sectionMatch && inProcedureDivision) {
-        program.sections.push({ name: sectionMatch[1], line: lineNum });
+        program.sections.push({ name: sectionMatch[1], line: lineNum, endLine: lineNum });
       }
 
       // Paragraphs in PROCEDURE DIVISION
       if (inProcedureDivision) {
         const paraMatch = text.match(/^([A-Za-z0-9-]+)\s*\.\s*$/);
         if (paraMatch && !textUpper.includes('SECTION')) {
-          if (currentParagraph) {
-            currentParagraph.endLine = lineNum - 1;
+          const paraName = paraMatch[1].toUpperCase();
+          // Exclude COBOL scope terminators and keywords that look like paragraphs
+          const COBOL_KEYWORDS = new Set([
+            'END-IF',
+            'END-PERFORM',
+            'END-EVALUATE',
+            'END-READ',
+            'END-WRITE',
+            'END-REWRITE',
+            'END-DELETE',
+            'END-START',
+            'END-RETURN',
+            'END-SEARCH',
+            'END-CALL',
+            'END-COMPUTE',
+            'END-STRING',
+            'END-UNSTRING',
+            'END-MULTIPLY',
+            'END-DIVIDE',
+            'END-ADD',
+            'END-SUBTRACT',
+            'END-ACCEPT',
+            'END-DISPLAY',
+            'END-EXEC',
+            'END-XML',
+            'END-JSON',
+            'END-INVOKE',
+            'END-RECEIVE',
+            'ELSE',
+            'WHEN',
+            'NOT',
+            'CONTINUE',
+            'NEXT',
+            'EXIT',
+            'STOP',
+          ]);
+          if (!COBOL_KEYWORDS.has(paraName)) {
+            if (currentParagraph) {
+              currentParagraph.endLine = lineNum - 1;
+            }
+            currentParagraph = {
+              name: paraMatch[1],
+              line: lineNum,
+              endLine: lineNum,
+              performedBy: [],
+            };
+            program.paragraphs.push(currentParagraph);
           }
-          currentParagraph = {
-            name: paraMatch[1],
-            line: lineNum,
-            endLine: lineNum,
-            performedBy: [],
-          };
-          program.paragraphs.push(currentParagraph);
         }
       }
 
-      // PERFORM statements (track who calls whom)
-      const performMatch = textUpper.match(/PERFORM\s+(\S+)/);
+      // PERFORM statements — collect reference for second-pass resolution
+      const performMatch = textUpper.match(/PERFORM\s+([A-Z0-9][\w-]*)/);
       if (performMatch && inProcedureDivision) {
         const target = performMatch[1];
-        const targetParagraph = program.paragraphs.find((p) => p.name.toUpperCase() === target);
-        if (targetParagraph) {
-          targetParagraph.performedBy.push(currentParagraph?.name ?? 'unknown');
+        // Skip keywords that look like targets (UNTIL, VARYING, etc.)
+        if (!['UNTIL', 'VARYING', 'WITH', 'TEST', 'TIMES'].includes(target)) {
+          program.flowReferences.push({ target, refType: 'perform', line: lineNum });
         }
+      }
+
+      // GO TO statements
+      const gotoMatch = textUpper.match(/GO\s+TO\s+([A-Z0-9][\w-]*)/);
+      if (gotoMatch && inProcedureDivision) {
+        program.flowReferences.push({ target: gotoMatch[1], refType: 'goto', line: lineNum });
       }
 
       // CALL statements
@@ -214,6 +262,58 @@ export class CobolParser {
     // Close last paragraph
     if (currentParagraph) {
       currentParagraph.endLine = lines.length;
+    }
+
+    // ── Second pass: compute section endLines ──────────────────
+    // All procedure-level items sorted by line
+    const allProcItems = [
+      ...program.sections.map((s) => ({ line: s.line, ref: s })),
+      ...program.paragraphs.map((p) => ({ line: p.line, ref: null })),
+    ].sort((a, b) => a.line - b.line);
+
+    for (let si = 0; si < program.sections.length; si++) {
+      const sec = program.sections[si];
+      // Find next section or paragraph that starts after this section
+      let nextStart = lines.length;
+      for (const item of allProcItems) {
+        if (item.line > sec.line) {
+          // If it's another section, that's the boundary
+          if (item.ref && item.ref !== sec) {
+            nextStart = item.line - 1;
+            break;
+          }
+        }
+      }
+      // Also check next section directly
+      if (si + 1 < program.sections.length) {
+        nextStart = Math.min(nextStart, program.sections[si + 1].line - 1);
+      }
+      sec.endLine = nextStart;
+    }
+
+    // ── Second pass: resolve performedBy using all parsed paragraphs ──
+    const paraMap = new Map<string, CobolParagraph>();
+    for (const para of program.paragraphs) {
+      paraMap.set(para.name.toUpperCase(), para);
+    }
+
+    for (const ref of program.flowReferences) {
+      if (ref.refType === 'perform') {
+        const target = paraMap.get(ref.target);
+        if (target) {
+          // Find source paragraph by line containment
+          let sourceName = 'unknown';
+          for (const para of program.paragraphs) {
+            if (ref.line >= para.line && ref.line <= para.endLine) {
+              sourceName = para.name;
+              break;
+            }
+          }
+          if (!target.performedBy.includes(sourceName)) {
+            target.performedBy.push(sourceName);
+          }
+        }
+      }
     }
 
     return program;
