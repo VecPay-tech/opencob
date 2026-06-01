@@ -253,6 +253,13 @@ export class FindingsScanner {
     let inDeclaratives = false;
     let passedProcedureDiv = false;
     let firstProcParagraph = '';
+    // Track section membership: section name → list of paragraph names within it
+    const sectionParagraphs = new Map<string, string[]>();
+    let currentSection = '';
+    let pendingPerform = ''; // For multi-line PERFORM...THRU
+
+    // Resolve COPY book references to find PERFORM/GO TO in included code
+    this.resolveCobolCopyBooks(filePath, lines, referencedParagraphs, thruRanges);
 
     // Detect if file uses sequence numbers (columns 73-80)
     const hasSeqNums =
@@ -302,7 +309,7 @@ export class FindingsScanner {
         if (target) referencedParagraphs.add(target);
       }
 
-      // Rule: PERFORM references
+      // Rule: PERFORM references (handle multi-line PERFORM...THRU)
       const performMatch = trimmedCode.match(/\bPERFORM\s+([A-Z0-9][A-Z0-9-]*)/);
       if (performMatch && performMatch[1] !== 'VARYING' && performMatch[1] !== 'UNTIL') {
         referencedParagraphs.add(performMatch[1]);
@@ -310,7 +317,21 @@ export class FindingsScanner {
         if (thruMatch) {
           referencedParagraphs.add(thruMatch[1]);
           thruRanges.push({ from: performMatch[1], to: thruMatch[1] });
+          pendingPerform = '';
+        } else {
+          // THRU may be on the next line
+          pendingPerform = performMatch[1];
         }
+      } else if (pendingPerform && /^\s*THRU\s+([A-Z0-9][A-Z0-9-]*)/.test(trimmedCode)) {
+        // Continuation of previous PERFORM with THRU on this line
+        const thruMatch = trimmedCode.match(/\bTHRU\s+([A-Z0-9][A-Z0-9-]*)/);
+        if (thruMatch) {
+          referencedParagraphs.add(thruMatch[1]);
+          thruRanges.push({ from: pendingPerform, to: thruMatch[1] });
+        }
+        pendingPerform = '';
+      } else {
+        pendingPerform = '';
       }
 
       // Detect paragraph/section headers (skip division keywords)
@@ -339,6 +360,16 @@ export class FindingsScanner {
           paragraphName = headerMatch[1];
           paragraphStart = i;
           paragraphNames.push(paragraphName);
+
+          // Track section membership
+          const isSection = /SECTION\s*\.$/.test(headerMatch[0]);
+          if (isSection) {
+            currentSection = paragraphName;
+            sectionParagraphs.set(currentSection, []);
+          } else if (currentSection) {
+            sectionParagraphs.get(currentSection)!.push(paragraphName);
+          }
+
           if (inDeclaratives) {
             declarativeParagraphs.add(paragraphName);
           }
@@ -418,6 +449,17 @@ export class FindingsScanner {
       }
     }
 
+    // When a SECTION is explicitly PERFORMed, all paragraphs within it are reachable.
+    // Exception: the entry section (first after PROCEDURE DIVISION) — its paragraphs
+    // are NOT all reachable just by being the entry point; control is managed via PERFORM/GO TO.
+    for (const [sectionName, paragraphs] of sectionParagraphs) {
+      if (referencedParagraphs.has(sectionName) && sectionName !== firstProcParagraph) {
+        for (const para of paragraphs) {
+          referencedParagraphs.add(para);
+        }
+      }
+    }
+
     const COBOL_KEYWORDS = new Set([
       'WORKING-STORAGE',
       'LINKAGE',
@@ -435,11 +477,22 @@ export class FindingsScanner {
       'FILE-CONTROL',
       'I-O-CONTROL',
     ]);
+    // Build set of paragraphs inside dead sections (to avoid redundant reports)
+    const insideDeadSection = new Set<string>();
+    for (const [sectionName, paragraphs] of sectionParagraphs) {
+      if (!referencedParagraphs.has(sectionName)) {
+        for (const para of paragraphs) {
+          insideDeadSection.add(para);
+        }
+      }
+    }
+
     for (let idx = 1; idx < paragraphNames.length; idx++) {
       const name = paragraphNames[idx];
       if (
         !referencedParagraphs.has(name) &&
         !declarativeParagraphs.has(name) &&
+        !insideDeadSection.has(name) &&
         !name.endsWith('-EXIT') &&
         !name.endsWith('-END') &&
         !COBOL_KEYWORDS.has(name)
@@ -468,6 +521,145 @@ export class FindingsScanner {
         ),
       );
     }
+  }
+
+  /**
+   * Resolve COPY book references and extract PERFORM/GO TO from them.
+   * This prevents false "dead code" findings when a paragraph is
+   * PERFORMed from within an included copybook.
+   */
+  private resolveCobolCopyBooks(
+    filePath: string,
+    lines: string[],
+    referencedParagraphs: Set<string>,
+    thruRanges: Array<{ from: string; to: string }>,
+  ): void {
+    const sourceDir = path.dirname(filePath);
+    // Walk up to find the workspace source root (look for common lib patterns)
+    const sourceRoot = this.findSourceRoot(sourceDir);
+    const searchDirs = sourceRoot ? [sourceDir, sourceRoot] : [sourceDir];
+
+    for (const line of lines) {
+      const codeArea = line.length > 6 ? line.substring(6) : '';
+      if (line.length > 6 && line[6] === '*') continue;
+      const trimmed = codeArea.trim().toUpperCase();
+
+      // Match: COPY copyname OF libname.
+      // or:    COPY copyname.
+      const copyMatch = trimmed.match(
+        /^\s*COPY\s+([A-Z0-9][A-Z0-9-]*)\s*(?:OF|IN)?\s*([A-Z0-9-]*)/,
+      );
+      if (!copyMatch) continue;
+
+      const copyName = copyMatch[1].toLowerCase();
+      const libName = (copyMatch[2] || '').toLowerCase();
+
+      // Try to find the copybook file
+      const copyPath = this.findCopyBook(copyName, libName, searchDirs);
+      if (!copyPath) continue;
+
+      // Extract PERFORM and GO TO references from the copybook
+      try {
+        const content = fs.readFileSync(copyPath, 'utf-8');
+        const copyLines = content.split('\n');
+        for (const cl of copyLines) {
+          const ca = cl.length > 6 ? cl.substring(6) : '';
+          if (cl.length > 6 && cl[6] === '*') continue;
+          const ct = ca.trim().toUpperCase();
+
+          const perfMatch = ct.match(/\bPERFORM\s+([A-Z0-9][A-Z0-9-]*)/);
+          if (perfMatch && perfMatch[1] !== 'VARYING' && perfMatch[1] !== 'UNTIL') {
+            referencedParagraphs.add(perfMatch[1]);
+            const thruMatch = ct.match(/\bTHRU\s+([A-Z0-9][A-Z0-9-]*)/);
+            if (thruMatch) {
+              referencedParagraphs.add(thruMatch[1]);
+              thruRanges.push({ from: perfMatch[1], to: thruMatch[1] });
+            }
+          }
+
+          const gotoMatch = ct.match(/\bGO\s+TO\s+([A-Z0-9][A-Z0-9-]+)/);
+          if (gotoMatch) referencedParagraphs.add(gotoMatch[1]);
+        }
+      } catch {
+        // copybook not readable, skip
+      }
+    }
+  }
+
+  /**
+   * Find the source root by walking up from a directory.
+   * Looks for a directory named "source" or a directory that contains
+   * multiple library-like subdirectories (with cpysrc/cblsrc children).
+   */
+  private findSourceRoot(dir: string): string | null {
+    let current = dir;
+    for (let i = 0; i < 8; i++) {
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      const baseName = path.basename(current).toLowerCase();
+      if (baseName === 'source') return current;
+      // Also check if current dir looks like a source root (has lib subdirs)
+      try {
+        const children = fs.readdirSync(current, { withFileTypes: true });
+        const libDirs = children.filter(
+          (c) => c.isDirectory() && fs.existsSync(path.join(current, c.name, 'cpysrc')),
+        );
+        if (libDirs.length >= 2) return current;
+      } catch {
+        // skip
+      }
+      current = parent;
+    }
+    return null;
+  }
+
+  /**
+   * Locate a copybook file by name and optional library.
+   * Searches the entire source root for all cpysrc directories.
+   */
+  private findCopyBook(name: string, lib: string, searchDirs: string[]): string | null {
+    const extensions = ['.cpy', '.cbl', '.cbk', '.copy', ''];
+
+    // First: try same directory as source file
+    for (const dir of searchDirs) {
+      for (const ext of extensions) {
+        const candidate = path.join(dir, name + ext);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+
+    // Second: if a specific library was given, try that library's cpysrc
+    for (const dir of searchDirs) {
+      if (lib && lib !== '*libl') {
+        for (const sub of ['cpysrc', 'cblcpy', 'qcpysrc', '']) {
+          for (const ext of extensions) {
+            const candidate = path.join(dir, lib, sub, name + ext);
+            if (fs.existsSync(candidate)) return candidate;
+          }
+        }
+      }
+    }
+
+    // Third: search ALL library directories under the source root
+    // This handles COPY ... OF *LIBL or when the library search didn't match
+    for (const dir of searchDirs) {
+      try {
+        const libs = fs.readdirSync(dir, { withFileTypes: true });
+        for (const libDir of libs) {
+          if (!libDir.isDirectory()) continue;
+          for (const sub of ['cpysrc', 'cblcpy', 'qcpysrc']) {
+            for (const ext of extensions) {
+              const candidate = path.join(dir, libDir.name, sub, name + ext);
+              if (fs.existsSync(candidate)) return candidate;
+            }
+          }
+        }
+      } catch {
+        // can't read directory, skip
+      }
+    }
+
+    return null;
   }
 
   /** CL-specific quality rules */
