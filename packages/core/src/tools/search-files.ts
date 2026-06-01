@@ -1,8 +1,10 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { resolve, relative, join } from 'node:path';
+import { relative, join } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
-export function createSearchFilesTool(workspaceRoot: string): Tool {
+export function createSearchFilesTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'search_files',
     group: 'read',
@@ -36,10 +38,12 @@ export function createSearchFilesTool(workspaceRoot: string): Tool {
         return { success: false, content: 'Error: pattern parameter is required' };
       }
 
-      const searchPath = resolve(workspaceRoot, (params.path as string) || '.');
-      if (!searchPath.startsWith(workspaceRoot)) {
-        return { success: false, content: 'Error: path is outside the workspace' };
+      const pathInput = (params.path as string) || '.';
+      const resolved = resolveWorkspacePath(pathInput, workspaceRoot, roots);
+      if (isPathError(resolved)) {
+        return { success: false, content: resolved.error };
       }
+      const searchPath = resolved.absPath;
 
       const flags = (params.caseSensitive as boolean) ? 'g' : 'gi';
       let regex: RegExp;
@@ -51,7 +55,7 @@ export function createSearchFilesTool(workspaceRoot: string): Tool {
 
       try {
         const matches: string[] = [];
-        await searchDir(searchPath, workspaceRoot, regex, matches);
+        await searchDir(searchPath, resolved.root, regex, matches);
 
         if (matches.length === 0) {
           return { success: true, content: 'No matches found.', metadata: { matchCount: 0 } };

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
-import { resolve, relative } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
-export function createReadFileTool(workspaceRoot: string): Tool {
+export function createReadFileTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'read_file',
     group: 'read',
@@ -13,7 +14,7 @@ export function createReadFileTool(workspaceRoot: string): Tool {
       {
         name: 'path',
         type: 'string',
-        description: 'Relative path to the file from workspace root',
+        description: 'Relative or absolute path to the file',
         required: true,
       },
       {
@@ -35,16 +36,11 @@ export function createReadFileTool(workspaceRoot: string): Tool {
         return { success: false, content: 'Error: path parameter is required' };
       }
 
-      const absPath = resolve(workspaceRoot, filePath);
-      const relPath = relative(workspaceRoot, absPath);
-
-      // Prevent path traversal outside workspace
-      if (
-        relPath.startsWith('..') ||
-        (resolve(absPath) !== absPath && !absPath.startsWith(workspaceRoot))
-      ) {
-        return { success: false, content: 'Error: path is outside the workspace' };
+      const resolved = resolveWorkspacePath(filePath, workspaceRoot, roots);
+      if (isPathError(resolved)) {
+        return { success: false, content: resolved.error };
       }
+      const { absPath, relDisplay } = resolved;
 
       try {
         const content = await readFile(absPath, 'utf-8');
@@ -53,6 +49,7 @@ export function createReadFileTool(workspaceRoot: string): Tool {
         const start = Math.max(1, (params.startLine as number) || 1);
         const end = Math.min(lines.length, (params.endLine as number) || lines.length);
 
+        const relPath = relDisplay;
         const numbered = lines
           .slice(start - 1, end)
           .map((line: string, i: number) => `${start + i} | ${line}`)

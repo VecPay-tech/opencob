@@ -1,11 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
 /**
  * Insert content at a specific line position in a file.
  */
-export function createInsertContentTool(workspaceRoot: string): Tool {
+export function createInsertContentTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'insert_content',
     group: 'edit',
@@ -41,9 +43,13 @@ export function createInsertContentTool(workspaceRoot: string): Tool {
         return { success: false, content: 'Error: position is required' };
       if (!content) return { success: false, content: 'Error: content is required' };
 
-      const fullPath = path.resolve(workspaceRoot, filePath);
-      if (!fullPath.startsWith(path.resolve(workspaceRoot))) {
-        return { success: false, content: 'Error: path traversal not allowed' };
+      const fullPath = (() => {
+        const resolved = resolveWorkspacePath(filePath, workspaceRoot, roots);
+        if (isPathError(resolved)) return null;
+        return resolved.absPath;
+      })();
+      if (!fullPath) {
+        return { success: false, content: 'Error: path is outside the workspace' };
       }
 
       if (!fs.existsSync(fullPath)) {

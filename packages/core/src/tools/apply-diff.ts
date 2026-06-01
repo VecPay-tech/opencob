@@ -1,8 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { resolve, relative } from 'node:path';
+import { relative } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
-export function createApplyDiffTool(workspaceRoot: string): Tool {
+export function createApplyDiffTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'apply_diff',
     group: 'edit',
@@ -14,7 +16,7 @@ export function createApplyDiffTool(workspaceRoot: string): Tool {
       {
         name: 'path',
         type: 'string',
-        description: 'Relative path to the file from workspace root',
+        description: 'Relative or absolute path to the file',
         required: true,
       },
       {
@@ -36,10 +38,11 @@ export function createApplyDiffTool(workspaceRoot: string): Tool {
         return { success: false, content: 'Error: newString parameter is required' };
       }
 
-      const absPath = resolve(workspaceRoot, filePath);
-      if (!absPath.startsWith(workspaceRoot)) {
-        return { success: false, content: 'Error: path is outside the workspace' };
+      const resolved = resolveWorkspacePath(filePath, workspaceRoot, roots);
+      if (isPathError(resolved)) {
+        return { success: false, content: resolved.error };
       }
+      const { absPath } = resolved;
 
       try {
         const content = await readFile(absPath, 'utf-8');
@@ -65,7 +68,7 @@ export function createApplyDiffTool(workspaceRoot: string): Tool {
         const updated = content.replace(oldString, newString);
         await writeFile(absPath, updated, 'utf-8');
 
-        const relPath = relative(workspaceRoot, absPath);
+        const relPath = relative(resolved.root, absPath);
         return {
           success: true,
           content: `Diff applied to ${relPath}`,

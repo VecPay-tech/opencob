@@ -1,8 +1,10 @@
 import { readdir } from 'node:fs/promises';
 import { resolve, relative, join } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
-export function createListFilesTool(workspaceRoot: string): Tool {
+export function createListFilesTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'list_files',
     group: 'read',
@@ -14,7 +16,7 @@ export function createListFilesTool(workspaceRoot: string): Tool {
       {
         name: 'path',
         type: 'string',
-        description: 'Relative path from workspace root (default: ".")',
+        description: 'Relative or absolute path to list (default: ".")',
         required: false,
       },
       {
@@ -26,19 +28,19 @@ export function createListFilesTool(workspaceRoot: string): Tool {
     ],
     async execute(params: Record<string, unknown>): Promise<ToolResult> {
       const relInput = (params.path as string) || '.';
-      const absPath = resolve(workspaceRoot, relInput);
-
-      if (!absPath.startsWith(workspaceRoot)) {
-        return { success: false, content: 'Error: path is outside the workspace' };
+      const resolved = resolveWorkspacePath(relInput, workspaceRoot, roots);
+      if (isPathError(resolved)) {
+        return { success: false, content: resolved.error };
       }
+      const { absPath } = resolved;
 
       try {
         const recursive = Boolean(params.recursive);
-        const entries = await listDir(absPath, workspaceRoot, recursive, 0);
+        const entries = await listDir(absPath, resolved.root, recursive, 0);
         return {
           success: true,
           content: entries.join('\n') || '(empty directory)',
-          metadata: { path: relative(workspaceRoot, absPath), entryCount: entries.length },
+          metadata: { path: resolved.relDisplay, entryCount: entries.length },
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

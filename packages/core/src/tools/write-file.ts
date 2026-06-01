@@ -1,8 +1,10 @@
 import { writeFile, mkdir } from 'node:fs/promises';
-import { resolve, relative, dirname } from 'node:path';
+import { dirname } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
+import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 
-export function createWriteFileTool(workspaceRoot: string): Tool {
+export function createWriteFileTool(workspaceRoot: string, allRoots?: string[]): Tool {
+  const roots = allRoots ?? [workspaceRoot];
   return {
     name: 'write_to_file',
     group: 'edit',
@@ -13,7 +15,7 @@ export function createWriteFileTool(workspaceRoot: string): Tool {
       {
         name: 'path',
         type: 'string',
-        description: 'Relative path to the file from workspace root',
+        description: 'Relative or absolute path to the file',
         required: true,
       },
       {
@@ -32,19 +34,19 @@ export function createWriteFileTool(workspaceRoot: string): Tool {
         return { success: false, content: 'Error: content parameter is required' };
       }
 
-      const absPath = resolve(workspaceRoot, filePath);
-      if (!absPath.startsWith(workspaceRoot)) {
-        return { success: false, content: 'Error: path is outside the workspace' };
+      const resolved = resolveWorkspacePath(filePath, workspaceRoot, roots);
+      if (isPathError(resolved)) {
+        return { success: false, content: resolved.error };
       }
+      const { absPath, relDisplay } = resolved;
 
       try {
         await mkdir(dirname(absPath), { recursive: true });
         await writeFile(absPath, content, 'utf-8');
-        const relPath = relative(workspaceRoot, absPath);
         return {
           success: true,
-          content: `File written: ${relPath}`,
-          metadata: { path: relPath, bytes: Buffer.byteLength(content, 'utf-8') },
+          content: `File written: ${relDisplay}`,
+          metadata: { path: relDisplay, bytes: Buffer.byteLength(content, 'utf-8') },
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
