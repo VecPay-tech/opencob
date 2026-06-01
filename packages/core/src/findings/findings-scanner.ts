@@ -248,8 +248,11 @@ export class FindingsScanner {
     const paragraphNames: string[] = [];
     const referencedParagraphs = new Set<string>();
     const declarativeParagraphs = new Set<string>();
+    const thruRanges: Array<{ from: string; to: string }> = [];
     let gotoCount = 0;
     let inDeclaratives = false;
+    let passedProcedureDiv = false;
+    let firstProcParagraph = '';
 
     // Detect if file uses sequence numbers (columns 73-80)
     const hasSeqNums =
@@ -266,6 +269,12 @@ export class FindingsScanner {
       if (isComment || codeArea.trim() === '') continue;
 
       const trimmedCode = codeArea.trim().toUpperCase();
+
+      // Track PROCEDURE DIVISION entry
+      if (/^\s*PROCEDURE\s+DIVISION/.test(trimmedCode)) {
+        passedProcedureDiv = true;
+        continue;
+      }
 
       // Track DECLARATIVES section (system-invoked, not dead code)
       if (/^\s*DECLARATIVES\s*\.\s*$/.test(trimmedCode)) {
@@ -298,7 +307,10 @@ export class FindingsScanner {
       if (performMatch && performMatch[1] !== 'VARYING' && performMatch[1] !== 'UNTIL') {
         referencedParagraphs.add(performMatch[1]);
         const thruMatch = trimmedCode.match(/\bTHRU\s+([A-Z0-9][A-Z0-9-]*)/);
-        if (thruMatch) referencedParagraphs.add(thruMatch[1]);
+        if (thruMatch) {
+          referencedParagraphs.add(thruMatch[1]);
+          thruRanges.push({ from: performMatch[1], to: thruMatch[1] });
+        }
       }
 
       // Detect paragraph/section headers (skip division keywords)
@@ -306,7 +318,7 @@ export class FindingsScanner {
         const headerMatch = codeArea.match(/^\s{0,4}([A-Z0-9][A-Z0-9-]*)\s*(\.\s*$|SECTION\s*\.)/);
         if (
           headerMatch &&
-          !/^(WORKING-STORAGE|LINKAGE|FILE|LOCAL-STORAGE|DATA|PROCEDURE|IDENTIFICATION|ENVIRONMENT|CONFIGURATION|INPUT-OUTPUT|REPORT|SCREEN|COMMUNICATION)$/.test(
+          !/^(WORKING-STORAGE|LINKAGE|FILE|LOCAL-STORAGE|DATA|PROCEDURE|IDENTIFICATION|ENVIRONMENT|CONFIGURATION|INPUT-OUTPUT|FILE-CONTROL|I-O-CONTROL|REPORT|SCREEN|COMMUNICATION)$/.test(
             headerMatch[1],
           )
         ) {
@@ -329,6 +341,10 @@ export class FindingsScanner {
           paragraphNames.push(paragraphName);
           if (inDeclaratives) {
             declarativeParagraphs.add(paragraphName);
+          }
+          // First paragraph/section after PROCEDURE DIVISION is entry point
+          if (passedProcedureDiv && !inDeclaratives && !firstProcParagraph) {
+            firstProcParagraph = paragraphName;
           }
         }
       }
@@ -378,7 +394,31 @@ export class FindingsScanner {
     }
 
     // Dead paragraph detection
-    const COBOL_DIVISIONS = new Set([
+    // First, resolve PERFORM...THRU ranges — all paragraphs between
+    // start and end of a THRU range are implicitly executed (fall-through)
+    for (const range of thruRanges) {
+      const fromIdx = paragraphNames.indexOf(range.from);
+      const toIdx = paragraphNames.indexOf(range.to);
+      if (fromIdx >= 0 && toIdx >= 0) {
+        const start = Math.min(fromIdx, toIdx);
+        const end = Math.max(fromIdx, toIdx);
+        for (let idx = start; idx <= end; idx++) {
+          referencedParagraphs.add(paragraphNames[idx]);
+        }
+      }
+    }
+
+    // Mark the entry point (first section/paragraph after PROCEDURE DIVISION)
+    if (firstProcParagraph) {
+      referencedParagraphs.add(firstProcParagraph);
+      // Also mark the first paragraph inside the entry section
+      const entryIdx = paragraphNames.indexOf(firstProcParagraph);
+      if (entryIdx >= 0 && entryIdx + 1 < paragraphNames.length) {
+        referencedParagraphs.add(paragraphNames[entryIdx + 1]);
+      }
+    }
+
+    const COBOL_KEYWORDS = new Set([
       'WORKING-STORAGE',
       'LINKAGE',
       'FILE',
@@ -392,6 +432,8 @@ export class FindingsScanner {
       'PROCEDURE',
       'CONFIGURATION',
       'INPUT-OUTPUT',
+      'FILE-CONTROL',
+      'I-O-CONTROL',
     ]);
     for (let idx = 1; idx < paragraphNames.length; idx++) {
       const name = paragraphNames[idx];
@@ -400,7 +442,7 @@ export class FindingsScanner {
         !declarativeParagraphs.has(name) &&
         !name.endsWith('-EXIT') &&
         !name.endsWith('-END') &&
-        !COBOL_DIVISIONS.has(name)
+        !COBOL_KEYWORDS.has(name)
       ) {
         findings.push(
           this.createFinding(
