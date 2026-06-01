@@ -5,9 +5,11 @@ import { ChatPanelProvider } from './chat/chat-panel-provider.js';
 import { InlineCompletionProvider } from './completion/inline-completion-provider.js';
 import { FindingsProvider, type Finding } from './findings/findings-provider.js';
 import { ActivityPanelProvider } from './activity/activity-panel-provider.js';
+import { ScanPanel } from './scan-panel.js';
 import { InlineEditProvider } from './inline-edit/inline-edit-provider.js';
 import { QuickChatProvider } from './chat/quick-chat-provider.js';
 import { EditsPanelProvider } from './edits/edits-panel-provider.js';
+import { DocsPanelProvider } from './docs/docs-panel-provider.js';
 import { registerChatParticipant } from './chat/chat-participant.js';
 
 import { EEClient } from './enterprise/ee-client.js';
@@ -49,13 +51,29 @@ import {
   createMultiEditTool,
   createManageTodoTool,
   generateDiagramFromContent,
+  getAvailableDiagramsFromContent,
+  getSectionsFromContent,
   classifyExtension,
   getAvailableDiagramTypes,
   type ToolGroupConfig,
 } from '@opencob/core';
 
+import { DIAGRAM_SCHEME, diagramContentProvider, createDiagramUri } from './diagram-store.js';
+import { DiagramPanel } from './diagram-panel.js';
+
 export function activate(context: vscode.ExtensionContext): void {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+  const externalPaths: string[] = vscode.workspace
+    .getConfiguration('OpenCob')
+    .get('allowExternalPaths', []);
+  const allWorkspaceRoots = [
+    ...(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
+    ...externalPaths,
+  ];
+
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(DIAGRAM_SCHEME, diagramContentProvider),
+  );
 
   // Load configuration
   const configLoader = new ConfigLoader(workspaceRoot);
@@ -171,16 +189,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Register built-in tools
   toolRegistry.registerAll([
-    createReadFileTool(workspaceRoot),
-    createListFilesTool(workspaceRoot),
-    createSearchFilesTool(workspaceRoot),
-    createWriteFileTool(workspaceRoot),
-    createApplyDiffTool(workspaceRoot),
+    createReadFileTool(workspaceRoot, allWorkspaceRoots),
+    createListFilesTool(workspaceRoot, allWorkspaceRoots),
+    createSearchFilesTool(workspaceRoot, allWorkspaceRoots),
+    createWriteFileTool(workspaceRoot, allWorkspaceRoots),
+    createApplyDiffTool(workspaceRoot, allWorkspaceRoots),
     createExecuteCommandTool(workspaceRoot),
     createAskFollowupTool(),
     createSwitchModeTool(modeEngine),
     createListCodeDefinitionsTool(workspaceRoot),
-    createInsertContentTool(workspaceRoot),
+    createInsertContentTool(workspaceRoot, allWorkspaceRoots),
     createUndoLastTurnTool(snapshotManager),
     createAnalyzeCodeTool(workspaceRoot),
     createGenerateDiagramTool(workspaceRoot),
@@ -397,6 +415,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('OpenCob.openChat', () => {
       vscode.commands.executeCommand('OpenCob.chatPanel.focus');
+    }),
+
+    // Send a message to the chat panel programmatically (used by scan panel)
+    vscode.commands.registerCommand('opencob.sendToChat', async (text: string) => {
+      await chatProvider.sendMessage(text);
     }),
 
     vscode.commands.registerCommand('OpenCob.switchMode', async () => {
@@ -628,10 +651,58 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Scan workspace for findings (F7)
     vscode.commands.registerCommand('OpenCob.scanWorkspace', () => {
-      findingsScanner.scanWorkspace();
+      const results = findingsScanner.scanWorkspace();
+      // Bridge core Finding to extension Finding format
+      const mapped = results.map((f) => ({
+        id: f.id,
+        file: f.filePath,
+        line: f.line ?? 1,
+        severity: f.severity,
+        type: f.category,
+        message: f.message,
+        timestamp: Date.now(),
+      }));
+      findingsProvider.clear();
+      findingsProvider.addFindings(mapped);
       const counts = findingsScanner.getCounts();
       vscode.window.showInformationMessage(
         `OpenCob Scan: ${counts.error} errors, ${counts.warning} warnings, ${counts.info} info (${counts.total} total)`,
+      );
+    }),
+
+    // Scan current file and show results in panel
+    vscode.commands.registerCommand('OpenCob.scanFile', () => {
+      ScanPanel.show(context.extensionUri, findingsScanner, workspaceRoot);
+    }),
+
+    // Explorer context menu: Quality Scan (file or folder)
+    vscode.commands.registerCommand('OpenCob.scanExplorer', async (uri: vscode.Uri) => {
+      if (!uri) return;
+      const stat = await vscode.workspace.fs.stat(uri);
+      const isDir = stat.type === vscode.FileType.Directory;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'OpenCob: Scanning...',
+          cancellable: false,
+        },
+        async () => {
+          let files: string[] = [];
+          if (isDir) {
+            const pattern = new vscode.RelativePattern(
+              uri,
+              '**/*.{cbl,cob,cpy,clp,clle,cmd,rpg,rpgle,sqlrpgle,pli,pl1,sbc,ccp,ccc,cbe,sqb,pco,ts,js,py,java,go}',
+            );
+            const uris = await vscode.workspace.findFiles(pattern, null, 500);
+            files = uris.map((u) => u.fsPath);
+          } else {
+            files = [uri.fsPath];
+          }
+
+          const label = isDir ? path.basename(uri.fsPath) : undefined;
+          ScanPanel.scanPaths(context.extensionUri, findingsScanner, files, label);
+        },
       );
     }),
 
@@ -787,6 +858,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Open Documentation panel command
+  const docsPanel = new DocsPanelProvider(context.extensionUri, workspaceRoot);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('OpenCob.openDocs', () => {
+      docsPanel.open();
+    }),
+  );
+
   // Generate Diagram command (F4.4) — direct invocation from active file
   context.subscriptions.push(
     vscode.commands.registerCommand('OpenCob.generateDiagram', async () => {
@@ -800,48 +879,43 @@ export function activate(context: vscode.ExtensionContext): void {
       const filePath = doc.uri.fsPath;
       const ext = path.extname(filePath).slice(1).toLowerCase();
       const info = classifyExtension(ext);
+      const modernExts = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'java', 'go']);
+      const isModern = modernExts.has(ext);
 
-      if (!info) {
+      if (!info && !isModern) {
         vscode.window.showWarningMessage(
           `OpenCob: Unsupported file type ".${ext}" for diagram generation.`,
         );
         return;
       }
 
-      const available = getAvailableDiagramTypes(ext);
-      if (available.length === 0) {
+      // Use content-based availability detection for precise type list
+      const content = doc.getText();
+      const selectedText =
+        editor.selection && !editor.selection.isEmpty ? doc.getText(editor.selection) : '';
+      const diagramContent = selectedText || content;
+      const availability = getAvailableDiagramsFromContent(diagramContent, ext);
+
+      if (availability.types.length === 0) {
         vscode.window.showWarningMessage(
           `OpenCob: No diagram types available for ".${ext}" files.`,
         );
         return;
       }
 
-      const items = available.map((t) => ({
-        label: t,
-        description: getDiagramDescription(t),
-      }));
+      const sections = getSectionsFromContent(diagramContent, ext);
 
-      const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Select diagram type for ${path.basename(filePath)} (${info.category})`,
-      });
-      if (!selected) return;
-
-      const content = doc.getText();
-      const result = generateDiagramFromContent(content, ext, selected.label as any);
-
-      if (!result.success) {
-        vscode.window.showErrorMessage(`OpenCob Diagram: ${result.content}`);
-        return;
-      }
-
-      // Show the diagram output in a new editor tab
-      const outputDoc = await vscode.workspace.openTextDocument({
-        content: result.content,
-        language: result.metadata?.format === 'ascii' ? 'text' : 'markdown',
-      });
-      await vscode.window.showTextDocument(outputDoc, {
-        viewColumn: vscode.ViewColumn.Beside,
-        preview: true,
+      // Open diagram panel immediately with auto/recommended — no picker
+      DiagramPanel.create(context, {
+        content: diagramContent,
+        ext,
+        filePath,
+        currentType: availability.recommended,
+        currentSectionId: undefined,
+        currentDirection: 'TD',
+        currentZoom: 100,
+        availableTypes: availability.types,
+        sections,
       });
     }),
   );
@@ -1035,6 +1109,7 @@ export function activate(context: vscode.ExtensionContext): void {
 /** Map diagram type slugs to human-readable descriptions for the QuickPick UI. */
 function getDiagramDescription(type: string): string {
   const descriptions: Record<string, string> = {
+    auto: 'Recommended based on code context',
     call_graph: 'External CALL/LINK/XCTL targets',
     dependency_map: 'COPY/INCLUDE/file references',
     structure_chart: 'Program structure (divisions/sections/paragraphs)',
@@ -1045,6 +1120,7 @@ function getDiagramDescription(type: string): string {
     copybook_tree: 'Copybook dependency tree',
     record_layout: 'Record formats with field types',
     screen_layout: 'Terminal screen rendering (ASCII art)',
+    usage_map: 'Who uses this file — outgoing calls, copies, and file I/O',
     'call-graph': 'Function call graph',
     dependency: 'Import/require graph',
     structure: 'File/folder structure',
