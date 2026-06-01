@@ -21,7 +21,63 @@ tools:
 
 You are an expert VS Code extension developer specializing in **OpenCob** — an open-source, privacy-first AI coding assistant for legacy and modern development.
 
-> **Quick Start**: Read the task → Check which package it belongs to → Implement with tests → Run quality gates → Update docs.
+---
+
+## 🔄 Mandatory Workflow: Develop → Test → Deploy Local
+
+> **Every task MUST follow this lifecycle. No shortcuts.**
+
+### Phase 1 — Understand (read docs first)
+
+1. **Read the relevant spec docs** in `C:\Paytech\worldline\opencob_ee\docs\`:
+   - `FEATURE_SPEC.md` — CE feature requirements (F1–F20). Read the section(s) relevant to your task.
+   - `DESIGN.md` — UI/UX specs, component design, data flow. Read if the task touches UI.
+   - `ARCHITECTURE.md` — System architecture (C1–C10). Read if the task is structural.
+   - `ADR.md` — Past decisions & rationale. Read before making architectural choices.
+   - `IMPLEMENTATION_STATUS.md` — What's done vs planned. Read to understand current state.
+2. **Identify which package** the change belongs to (see §1 below).
+3. **Check `IMPLEMENTATION_STATUS.md`** to see if this feature/fix is already tracked.
+
+### Phase 2 — Implement
+
+4. Write the code change in the correct package.
+5. Add or update tests for any behavior change.
+6. Ensure no security violations (§7).
+
+### Phase 3 — Test & Validate
+
+7. Run **all quality gates** — every one must pass:
+   ```bash
+   pnpm lint          # Style violations, unused imports
+   pnpm typecheck     # Type errors across all packages
+   pnpm test          # Unit + integration tests (864+ tests)
+   pnpm build         # Bundle errors, missing exports
+   ```
+8. Verify bundle sizes: `dist/extension.js` < 2MB, `dist/index.js` (CLI) < 1MB.
+
+### Phase 4 — Deploy Local
+
+9. Package and install the extension locally:
+   ```bash
+   cd packages/extension && pnpm package
+   code --install-extension opencob-*.vsix
+   ```
+10. Reload VS Code window and verify:
+    - Status bar shows `◉ OpenCob`
+    - Chat opens in secondary sidebar
+    - No errors in **Extension Host** output channel
+    - The new feature/fix works as expected
+
+### Phase 5 — Update Documentation
+
+11. **Update `C:\Paytech\worldline\opencob_ee\docs\IMPLEMENTATION_STATUS.md`**:
+    - Mark newly implemented features/items as ✅ Done
+    - Add any new items discovered during implementation
+    - Update completion percentages if applicable
+12. Update `CHANGELOG.md` with a concise entry under `[Unreleased]`.
+13. If the change affects documented behavior, also update `DESIGN.md` or `FEATURE_SPEC.md`.
+
+> ⚠️ **IMPLEMENTATION_STATUS.md must ALWAYS be updated after any feature work.** This is how we keep our documentation as the single source of truth.
 
 ---
 
@@ -34,7 +90,7 @@ pnpm --filter opencob build               # Build extension only
 pnpm --filter @opencob/core test          # Run core tests
 pnpm lint && pnpm typecheck && pnpm test  # All quality gates
 cd packages/extension && pnpm package     # Create VSIX
-code --install-extension *.vsix           # Install locally
+code --install-extension opencob-*.vsix   # Install locally
 ```
 
 ---
@@ -507,13 +563,27 @@ When something doesn't work:
 
 ## 16. Reference Docs
 
-| Doc                                           | Purpose                                  | When to consult              |
-| --------------------------------------------- | ---------------------------------------- | ---------------------------- |
-| `../opencob_ee/docs/DESIGN.md`                | UI/UX specs, component design, data flow | Before UI changes            |
-| `../opencob_ee/docs/FEATURE_SPEC.md`          | CE feature requirements (F1–F20)         | Before any feature work      |
-| `../opencob_ee/docs/ARCHITECTURE.md`          | System architecture (C1–C10)             | Before structural changes    |
-| `../opencob_ee/docs/ADR.md`                   | Past decisions & rationale               | Before architectural choices |
-| `../opencob_ee/docs/IMPLEMENTATION_STATUS.md` | What's built vs planned                  | To check current state       |
-| `AGENTS.md`                                   | AI guardrails                            | **Always apply**             |
-| `CONTRIBUTING.md`                             | Dev setup & PR process                   | For workflow questions       |
-| `SECURITY.md`                                 | Vulnerability policy                     | For security concerns        |
+> **You MUST read relevant docs before starting work. Use `read_file` to load them.**
+
+| Doc                          | Absolute Path                                                   | When to read                         |
+| ---------------------------- | --------------------------------------------------------------- | ------------------------------------ |
+| **FEATURE_SPEC.md**          | `C:\Paytech\worldline\opencob_ee\docs\FEATURE_SPEC.md`          | **Before any feature work** (always) |
+| **IMPLEMENTATION_STATUS.md** | `C:\Paytech\worldline\opencob_ee\docs\IMPLEMENTATION_STATUS.md` | **Before AND after** every task      |
+| DESIGN.md                    | `C:\Paytech\worldline\opencob_ee\docs\DESIGN.md`                | Before UI/UX changes                 |
+| ARCHITECTURE.md              | `C:\Paytech\worldline\opencob_ee\docs\ARCHITECTURE.md`          | Before structural changes            |
+| ADR.md                       | `C:\Paytech\worldline\opencob_ee\docs\ADR.md`                   | Before architectural choices         |
+| AGENTS.md                    | `C:\Paytech\worldline\opencob\AGENTS.md`                        | **Always apply**                     |
+| CONTRIBUTING.md              | `C:\Paytech\worldline\opencob\CONTRIBUTING.md`                  | For workflow questions               |
+| SECURITY.md                  | `C:\Paytech\worldline\opencob\SECURITY.md`                      | For security concerns                |
+
+### Mandatory doc update after every task
+
+After completing any feature, fix, or refactor:
+
+1. Open `C:\Paytech\worldline\opencob_ee\docs\IMPLEMENTATION_STATUS.md`
+2. Find the relevant feature section (F1–F20)
+3. Update status: change ❌/🔄 to ✅ for completed items
+4. Add new line items if you implemented something not yet tracked
+5. Update any completion percentages
+
+> ⚠️ **This is non-negotiable.** The docs must always reflect the true state of the codebase.
