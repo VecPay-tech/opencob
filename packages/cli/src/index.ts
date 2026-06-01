@@ -7,6 +7,8 @@ import {
   RedactionEngine,
   SnapshotManager,
   RAGPipeline,
+  MentionParser,
+  MCPClient,
   createReadFileTool,
   createListFilesTool,
   createSearchFilesTool,
@@ -25,6 +27,7 @@ import {
   createShowImpactChainTool,
   createMultiEditTool,
   createManageTodoTool,
+  createUseMcpTool,
 } from '@opencob/core';
 import * as readline from 'node:readline';
 import * as path from 'node:path';
@@ -70,6 +73,17 @@ async function main(): Promise<void> {
   // Initialize RAG
   const ragPipeline = new RAGPipeline();
 
+  // Initialize MCP client (F10.2)
+  const mcpClient = new MCPClient();
+  const mcpServers = await mcpClient.loadConfig(workspaceRoot);
+  for (const server of mcpServers) {
+    try {
+      await mcpClient.connect(server);
+    } catch {
+      // Non-fatal — continue without this MCP server
+    }
+  }
+
   toolRegistry.registerAll([
     createReadFileTool(workspaceRoot),
     createListFilesTool(workspaceRoot),
@@ -89,6 +103,7 @@ async function main(): Promise<void> {
     createShowImpactChainTool(workspaceRoot),
     createMultiEditTool(workspaceRoot, snapshotManager),
     createManageTodoTool(),
+    createUseMcpTool(mcpClient),
   ]);
 
   const redactionEngine = new RedactionEngine();
@@ -102,6 +117,18 @@ async function main(): Promise<void> {
     snapshotManager,
   );
   await agentLoop.loadCustomCommands();
+
+  // Mention resolver for @ references in CLI (F10/F12)
+  const mentionParser = new MentionParser(workspaceRoot);
+
+  /** Resolve @file and other mentions in user input, appending context */
+  async function resolveCliMentions(input: string): Promise<string> {
+    // Quick check — skip parsing if no @ signs
+    if (!input.includes('@')) return input;
+    const result = await mentionParser.parse(input);
+    if (result.mentions.length === 0) return input;
+    return `${result.cleanText}\n\n${result.contextBlock}`;
+  }
 
   // Non-interactive mode
   if (args.includes('--task')) {
@@ -118,7 +145,8 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    for await (const event of agentLoop.processMessage(task)) {
+    const resolvedTask = await resolveCliMentions(task);
+    for await (const event of agentLoop.processMessage(resolvedTask)) {
       switch (event.type) {
         case 'text':
           process.stdout.write(event.text ?? '');
@@ -184,8 +212,11 @@ async function main(): Promise<void> {
       process.exit(0);
     }
 
+    // Resolve @ mentions (F10/F12)
+    const resolvedInput = await resolveCliMentions(input);
+
     // Process through the agent loop
-    for await (const event of agentLoop.processMessage(input)) {
+    for await (const event of agentLoop.processMessage(resolvedInput)) {
       switch (event.type) {
         case 'text':
           process.stdout.write(event.text ?? '');

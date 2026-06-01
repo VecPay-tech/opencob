@@ -22,7 +22,7 @@ export function registerChatParticipant(
 
       // Handle slash commands
       if (command === 'plan') {
-        prompt = `Create a detailed step-by-step plan for: ${prompt}`;
+        prompt = `Plan and execute the following task. If the task asks to write a file, use write_to_file to actually create it: ${prompt}`;
       } else if (command === 'analyze') {
         prompt = `Analyze the following code or system: ${prompt}`;
       } else if (command === 'modernize') {
@@ -56,7 +56,7 @@ export function registerChatParticipant(
 
         const response = await agentLoop.run(fullPrompt, {
           stream: false,
-          mode: command === 'plan' ? 'plan' : command === 'analyze' ? 'ask' : undefined,
+          mode: command === 'analyze' ? 'ask' : undefined,
         });
 
         if (token.isCancellationRequested) return;
@@ -66,20 +66,28 @@ export function registerChatParticipant(
           stream.markdown(response.content);
         }
 
-        // Show tool calls as references
+        // Show tool calls as references and confirm file operations
         if (response.toolCalls && response.toolCalls.length > 0) {
+          const fileOps: string[] = [];
           for (const call of response.toolCalls) {
-            if (call.name === 'read_file' || call.name === 'write_file') {
-              const filePath = (call.params?.path || call.params?.filePath) as string | undefined;
-              if (filePath) {
-                try {
-                  const uri = vscode.Uri.file(filePath);
-                  stream.reference(uri);
-                } catch {
-                  // Non-critical
-                }
+            const filePath = (call.params?.path || call.params?.filePath) as string | undefined;
+            if (filePath) {
+              try {
+                const uri = vscode.Uri.file(filePath);
+                stream.reference(uri);
+              } catch {
+                // Non-critical
+              }
+              if (call.name === 'write_to_file' || call.name === 'insert_content') {
+                fileOps.push(`✅ Wrote: \`${filePath}\``);
+              } else if (call.name === 'apply_diff' || call.name === 'multi_edit') {
+                fileOps.push(`✅ Edited: \`${filePath}\``);
               }
             }
+          }
+          // If the model didn't produce text but did execute tools, show summary
+          if (!response.content && fileOps.length > 0) {
+            stream.markdown(fileOps.join('\n\n'));
           }
         }
       } catch (err: any) {

@@ -57,7 +57,108 @@ export {
   getAvailableDiagramTypes,
 } from './tools/diagram-types.js';
 export { parseControlFlow, parseClControlFlow, type FlowGraph } from './tools/flow-parser.js';
-export { generateDiagramFromContent } from './tools/generate-diagram.js';
+export {
+  generateDiagramFromContent,
+  getAvailableDiagramsFromContent,
+  getSectionsFromContent,
+  type SectionEntry,
+} from './tools/generate-diagram.js';
+export { DiagramCache, diagramCache } from './tools/diagram-cache.js';
+export {
+  listAvailableTypes,
+  generateDiagram,
+  listSections,
+  invalidateDiagramCache,
+  clearDiagramCache,
+  type DiagramAvailabilityResponse,
+  type DiagramGenerationResponse,
+  type DiagramSectionResponse,
+} from './tools/diagram-api.js';
+export {
+  humanizeFieldLabel,
+  assignFunctionKeyLabels,
+  resolveMsgcon,
+  extractClDriverTitle,
+  resolveHeaderValue,
+  generateFieldLegend,
+  type FuncKeyField,
+  type MsgconResolution,
+  type ClDriverTitle,
+  type HeaderContext,
+  type FieldLegendEntry,
+} from './tools/dspf-enhancements.js';
+export { ibmiNameToExtension, ibmiExtractMemberName } from './tools/ibmi-name-resolver.js';
+export {
+  prefetchMsgconCache,
+  lookupMsgcon,
+  getMsgconCache,
+  getMsgconCacheSize,
+  clearMsgconCache,
+  addMsgconEntry,
+  type MsgconEntry,
+} from './tools/msgcon-cache.js';
+export {
+  computeCyclomaticComplexity,
+  computeMaxNestingDepth,
+  computeComplexityScore,
+  classifyRisk,
+  aggregateScores,
+  DependencyGraph,
+  propagateVulnerabilities,
+  degradeSeverity,
+  DEP_WEIGHTS,
+  type ComplexityScore as CodeComplexityScore,
+  type ComplexityScan,
+  type RefType,
+  type DepEdge,
+  type DepNode,
+  type ReachableNode,
+  type VulnerabilityImpact,
+  type SecurityFinding,
+  // Dependency engine
+  scanRepo,
+  dependencyTree,
+  impactAnalysis,
+  buildOrder,
+  generateBuildScript,
+  repoSummary,
+  unresolvedReferences,
+  impactMarkdown,
+  inferObjectType,
+  type ObjectType,
+  type CrossRefType,
+  type SourceObject,
+  type ImpactResult,
+  type BuildOrderResult,
+  type BuildScriptResult,
+  type RepoSummary,
+  type UnresolvedRef,
+  type DependencyTreeNode,
+  // Quality rules
+  scanFileQuality,
+  scanQuality,
+  getAvailableCheckers,
+  DEFAULT_RULES,
+  type Severity,
+  type QualityRule,
+  type QualityIssue,
+  type QualityScanResult,
+  // Rule loader
+  loadRules,
+  loadRulesSync,
+  fetchEeRules,
+  convertEeRules,
+  getAvailablePresets,
+  type RuleConfigFile,
+  type RuleOverride,
+  type EeRemoteRule,
+  type RuleLoadResult,
+} from './metrics/index.js';
+export {
+  resolveReffldLengths,
+  clearReffldCache,
+  getReffldCacheSize,
+} from './legacy/reffld-resolver.js';
 export { parseBmsMap, type BmsMapField, type BmsParseResult } from './legacy/bms-parser.js';
 export {
   parseDds,
@@ -114,6 +215,14 @@ export {
   type CustomizationContext,
   type ResolvedInstructions,
 } from './agent/customization-loader.js';
+export { CodeOwnersResolver, type CodeOwnerRule } from './agent/codeowners.js';
+export {
+  HooksEngine,
+  type HookEvent,
+  type HookDefinition,
+  type HookContext,
+  type HookResult,
+} from './agent/hooks-engine.js';
 
 // Conversation
 export {

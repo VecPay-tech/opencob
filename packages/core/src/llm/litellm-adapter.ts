@@ -239,14 +239,17 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
         }
       | undefined;
 
-    // Yield text content if any
-    if (message?.content) {
+    // Yield tool calls if any (prioritize over text when both present)
+    const hasToolCalls = message?.tool_calls && message.tool_calls.length > 0;
+
+    // Only yield text content if there are no tool_calls
+    // (models sometimes echo tool params as content alongside tool_calls)
+    if (message?.content && !hasToolCalls) {
       yield { type: 'text', text: message.content };
     }
 
-    // Yield tool calls if any
-    if (message?.tool_calls && message.tool_calls.length > 0) {
-      for (const tc of message.tool_calls) {
+    if (hasToolCalls) {
+      for (const tc of message!.tool_calls!) {
         try {
           const params = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
           yield {

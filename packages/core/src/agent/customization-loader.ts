@@ -1,5 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { CodeOwnersResolver } from './codeowners.js';
+import {
+  HooksEngine,
+  type HookContext,
+  type HookResult,
+  type HookEvent,
+  type HookDefinition,
+} from './hooks-engine.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -16,6 +24,8 @@ export interface InstructionFile {
   description: string;
   /** Glob pattern for which files this instruction applies to */
   applyTo: string;
+  /** Optional CODEOWNERS owner — instruction only applies when file is owned by this owner */
+  owner?: string;
   /** Markdown body with instructions */
   body: string;
   /** Resolved file path (for debugging) */
@@ -71,6 +81,8 @@ export class CustomizationLoader {
   private workspaceRoot: string;
   private configDir: string;
   private cache: CustomizationContext | null = null;
+  private codeOwners: CodeOwnersResolver;
+  private hooksEngine: HooksEngine;
 
   constructor(workspaceRoot: string) {
     this.workspaceRoot = workspaceRoot;
@@ -78,6 +90,8 @@ export class CustomizationLoader {
     const lowerDir = path.join(workspaceRoot, '.opencob');
     const upperDir = path.join(workspaceRoot, '.OpenCob');
     this.configDir = fs.existsSync(lowerDir) ? lowerDir : upperDir;
+    this.codeOwners = new CodeOwnersResolver(workspaceRoot);
+    this.hooksEngine = new HooksEngine(workspaceRoot);
   }
 
   /** Load all customization files. Results are cached until invalidate() is called. */
@@ -125,13 +139,21 @@ export class CustomizationLoader {
       result.systemPromptAdditions.push(ctx.projectInstructions);
     }
 
-    // 3. File-specific instructions (matched by applyTo glob)
+    // 3. File-specific instructions (matched by applyTo glob + optional owner filter)
     const matched: InstructionFile[] = [];
     for (const instruction of ctx.instructions) {
       const matches = activeFiles.some((fp) => this.matchGlob(fp, instruction.applyTo));
-      if (matches) {
-        matched.push(instruction);
+      if (!matches) continue;
+
+      // If instruction specifies an owner, check CODEOWNERS
+      if (instruction.owner && this.codeOwners.hasCodeOwners()) {
+        const ownerMatches = activeFiles.some((fp) =>
+          this.codeOwners.isOwnedBy(fp, instruction.owner!),
+        );
+        if (!ownerMatches) continue;
       }
+
+      matched.push(instruction);
     }
 
     // Sort by specificity (more specific patterns first)
@@ -174,6 +196,30 @@ export class CustomizationLoader {
   getAgentTools(agentName: string): string[] {
     const agent = this.load().agents.find((a) => a.name === agentName);
     return agent?.tools ?? [];
+  }
+
+  // ─── CODEOWNERS ──────────────────────────────────────────────────────────
+
+  /** Get the CODEOWNERS resolver instance */
+  getCodeOwners(): CodeOwnersResolver {
+    return this.codeOwners;
+  }
+
+  /** Get owners for a file path */
+  getOwnersForFile(filePath: string): string[] {
+    return this.codeOwners.getOwners(filePath);
+  }
+
+  // ─── Lifecycle Hooks ─────────────────────────────────────────────────────
+
+  /** Get the hooks engine instance */
+  getHooksEngine(): HooksEngine {
+    return this.hooksEngine;
+  }
+
+  /** Fire a lifecycle hook and return any additional instructions to inject */
+  fireHook(context: HookContext): HookResult {
+    return this.hooksEngine.fire(context);
   }
 
   // ─── Private Loaders ─────────────────────────────────────────────────────
@@ -281,8 +327,9 @@ export class CustomizationLoader {
       if (!applyTo) return null; // Instructions without applyTo are invalid
 
       const description = (frontmatter.description as string) ?? '';
+      const owner = frontmatter.owner as string | undefined;
 
-      return { description, applyTo, body: body.trim(), sourcePath: filePath };
+      return { description, applyTo, owner, body: body.trim(), sourcePath: filePath };
     } catch {
       return null;
     }

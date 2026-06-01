@@ -12,8 +12,11 @@ import type { SnapshotManager } from '../checkpoints/snapshot-manager.js';
 import type { RAGPipeline } from '../indexer/rag-pipeline.js';
 import type { SkillsLoader } from '../skills/skills-loader.js';
 import { OrchestratorEngine } from './orchestrator-engine.js';
+import { CustomizationLoader } from './customization-loader.js';
+import type { HookContext } from './hooks-engine.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
+import { execSync } from 'node:child_process';
 
 export type AgentPhase =
   | 'preparing'
@@ -105,6 +108,7 @@ export class AgentLoop {
   private skillsLoader: SkillsLoader | null;
   private customCommands: Map<string, { description: string; prompt: string }>;
   private orchestrator: OrchestratorEngine;
+  private customizationLoader: CustomizationLoader | null;
   private config: AgentConfig;
   private turnFileChanges: Array<{
     path: string;
@@ -142,6 +146,9 @@ export class AgentLoop {
     this.skillsLoader = this.config.skillsLoader ?? null;
     this.customCommands = this.config.customCommands ?? new Map();
     this.orchestrator = new OrchestratorEngine(llm, modeEngine);
+    this.customizationLoader = this.config.workspaceRoot
+      ? new CustomizationLoader(this.config.workspaceRoot)
+      : null;
   }
 
   /** Hot-swap the LLM adapter (e.g. when user changes provider setting) */
@@ -162,11 +169,16 @@ export class AgentLoop {
       return;
     }
 
-    // Handle prompt-prefix slash commands (/explain, /fix, /test, /review)
+    // Handle prompt-prefix slash commands (/explain, /fix, /test, /review, /create-pr)
     let effectiveMessage = userMessage;
     const trimmed = userMessage.trim();
     if (trimmed.startsWith('/')) {
       const [cmd] = trimmed.split(/\s+/);
+      // Strip mode-switch commands that passed through (had trailing text)
+      const modeOnlyCmds = ['/plan', '/orchestrator', '/code', '/ask', '/advanced'];
+      if (modeOnlyCmds.includes(cmd)) {
+        effectiveMessage = trimmed.slice(cmd.length).trim();
+      }
       const promptCommands: Record<string, string> = {
         '/explain':
           'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
@@ -174,10 +186,36 @@ export class AgentLoop {
           'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
         '/test':
           'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
+        '/diagram':
+          'Generate the most relevant diagram for the following code/context. Prefer Mermaid output and include a short explanation of what the diagram shows. If a specific section is referenced, focus the diagram on that section.\n\n',
         '/review':
           'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
       };
-      if (cmd in promptCommands) {
+      if (cmd === '/review') {
+        const remainder = trimmed.slice(cmd.length).trim();
+        // Detect branch name argument (F17: /review <branch>)
+        if (remainder && this.looksLikeBranch(remainder)) {
+          const diff = this.resolveGitBranchDiff(remainder);
+          effectiveMessage =
+            `Review the following branch diff (comparing "${remainder}" against HEAD) for quality, security, performance, and maintainability issues. Provide a comprehensive analysis with specific improvement suggestions.\n\n` +
+            diff;
+        } else if (!remainder) {
+          // /review alone → review uncommitted changes
+          const diff = this.resolveGitBranchDiff('HEAD');
+          effectiveMessage =
+            'Review the following uncommitted changes for quality, security, performance, and maintainability issues. Suggest improvements.\n\n' +
+            diff;
+        } else {
+          effectiveMessage = promptCommands['/review'] + remainder;
+        }
+      } else if (cmd === '/create-pr') {
+        const baseBranch = trimmed.slice(cmd.length).trim() || 'main';
+        const prContext = this.resolveGitPrContext(baseBranch);
+        effectiveMessage =
+          `Generate a pull request title and description for the following changes (comparing current branch against "${baseBranch}"). ` +
+          `Use Conventional Commit style for the title. Structure the description with: ## Summary, ## Changes, ## Testing.\n\n` +
+          prContext;
+      } else if (cmd in promptCommands) {
         const remainder = trimmed.slice(cmd.length).trim();
         effectiveMessage = promptCommands[cmd] + remainder;
       } else {
@@ -210,6 +248,7 @@ export class AgentLoop {
     let mentionContext = '';
     if (this.mentionParser) {
       yield { type: 'phase_change', phase: 'gathering_context' };
+      yield { type: 'thinking', text: 'Resolving file references and mentions' };
       const parsed = await this.mentionParser.parse(effectiveMessage);
       processedMessage = parsed.cleanText;
       mentionContext = parsed.contextBlock;
@@ -223,6 +262,7 @@ export class AgentLoop {
     // Auto-inject RAG context (F8.2)
     let ragContext = '';
     if (this.ragPipeline) {
+      yield { type: 'thinking', text: 'Searching codebase for relevant context' };
       const retrieved = this.ragPipeline.retrieve(processedMessage, { topK: 5, minScore: 0.1 });
       if (retrieved.length > 0) {
         const snippets = retrieved
@@ -239,6 +279,7 @@ export class AgentLoop {
     let skillContext = '';
     if (this.skillsLoader) {
       try {
+        yield { type: 'thinking', text: 'Checking for applicable skills' };
         const skills = await this.skillsLoader.loadAll();
         const matchingSkills = skills.filter((s) => {
           if (!s.description) return false;
@@ -307,6 +348,10 @@ export class AgentLoop {
 
       // Emit reasoning phase before LLM call
       yield { type: 'phase_change', phase: 'reasoning' };
+      yield {
+        type: 'thinking',
+        text: 'Generating response' + (rounds > 1 ? ' (round ' + rounds + ')' : ''),
+      };
 
       // Stream LLM response
       let fullResponse = '';
@@ -348,6 +393,19 @@ export class AgentLoop {
         const msg = err instanceof Error ? err.message : String(err);
         yield { type: 'error', error: msg };
         return;
+      }
+
+      // Fallback: detect JSON text that looks like a tool call (model didn't use function calling)
+      if (!pendingToolCall && fullResponse) {
+        const parsed = this.tryParseTextToolCall(fullResponse);
+        if (parsed) {
+          pendingToolCall = parsed;
+          pendingToolCallId = `text_call_${rounds}`;
+          yield { type: 'phase_change', phase: 'analysing' };
+          yield { type: 'tool_call', toolCall: parsed };
+          // Clear the text so we don't display the JSON
+          fullResponse = '';
+        }
       }
 
       // If no tool call, we're done — save assistant response
@@ -394,12 +452,45 @@ export class AgentLoop {
 
       // Execute the tool
       yield { type: 'phase_change', phase: 'processing' };
+      yield {
+        type: 'thinking',
+        text:
+          'Executing ' +
+          pendingToolCall.name +
+          (pendingToolCall.parameters.path ? ': ' + pendingToolCall.parameters.path : ''),
+      };
+
+      // Fire onToolCallBefore hook
+      if (this.customizationLoader) {
+        const hookCtx: HookContext = {
+          event: 'onToolCallBefore',
+          toolName: pendingToolCall.name,
+          filePath: pendingToolCall.parameters.path as string | undefined,
+        };
+        this.customizationLoader.fireHook(hookCtx);
+      }
+
       const result = await this.toolRegistry.execute({
         toolName: pendingToolCall.name,
         parameters: pendingToolCall.parameters,
       });
 
+      // Fire onToolCallAfter hook
+      if (this.customizationLoader) {
+        const hookCtx: HookContext = {
+          event: 'onToolCallAfter',
+          toolName: pendingToolCall.name,
+          filePath: pendingToolCall.parameters.path as string | undefined,
+          data: { success: result.success },
+        };
+        this.customizationLoader.fireHook(hookCtx);
+      }
+
       yield { type: 'phase_change', phase: 'evaluating' };
+      yield {
+        type: 'thinking',
+        text: result.success ? 'Tool completed successfully' : 'Tool returned an error',
+      };
       yield { type: 'tool_result', toolResult: result };
 
       // Track file changes for changes summary bar (§8.4.1.1)
@@ -408,7 +499,14 @@ export class AgentLoop {
         if (writeTools.includes(pendingToolCall.name)) {
           const filePath = pendingToolCall.parameters.path as string | undefined;
           if (filePath) {
-            this.trackFileChange(filePath, result.content);
+            // Use the file content from parameters for accurate line counting
+            const fileContent = (pendingToolCall.parameters.content as string) || '';
+            this.trackFileChange(filePath, fileContent, pendingToolCall.name);
+
+            // Fire onFileChange hook
+            if (this.customizationLoader) {
+              this.customizationLoader.fireHook({ event: 'onFileChange', filePath });
+            }
           }
         }
       }
@@ -488,7 +586,7 @@ export class AgentLoop {
     const modeCommands: Record<string, string> = {
       '/code': 'code',
       '/ask': 'ask',
-      '/plan': 'plan',
+      '/plan': 'orchestrator',
       '/advanced': 'advanced',
       '/orchestrator': 'orchestrator',
     };
@@ -497,6 +595,11 @@ export class AgentLoop {
       const slug = modeCommands[command];
       this.modeEngine.setActive(slug);
       const mode = this.modeEngine.getActive();
+      // If there's text after the command, don't return — let processMessage handle it
+      const remainder = trimmed.slice(command.length).trim();
+      if (remainder) {
+        return null; // mode is set, processMessage will use it with the full input
+      }
       return { type: 'mode_switch', mode: mode.name, text: `Switched to ${mode.name} mode` };
     }
 
@@ -542,7 +645,9 @@ export class AgentLoop {
         '  /explain     — Explain selected code or file',
         '  /fix         — Fix errors in code',
         '  /test        — Generate tests',
-        '  /review      — Review code for issues',
+        '  /diagram     — Generate a relevant diagram from code/context',
+        '  /review      — Review code or branch for issues',
+        '  /create-pr   — Generate PR title and description',
         '  /help        — Show this help',
         customCmdList ? `\nCustom commands:\n${customCmdList}` : '',
         '',
@@ -563,13 +668,22 @@ export class AgentLoop {
         'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
       '/test':
         'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
+      '/diagram':
+        'Generate the most relevant diagram for the following code/context. Prefer Mermaid output and include a short explanation of what the diagram shows. If a specific section is referenced, focus the diagram on that section.\n\n',
       '/review':
         'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
+      '/create-pr': '', // Handled specially in processMessage
     };
 
     if (command in promptCommands) {
       const remainder = trimmed.slice(command.length).trim();
-      if (!remainder) {
+      // Commands that can run without explicit arguments
+      if (
+        !remainder &&
+        command !== '/create-pr' &&
+        command !== '/review' &&
+        command !== '/diagram'
+      ) {
         return { type: 'done', text: `Usage: ${command} <code or file reference>` };
       }
       // Return null so processMessage handles it — but rewrite the message with the prompt prefix
@@ -634,10 +748,112 @@ export class AgentLoop {
     }
   }
 
+  /** Heuristic: does the string look like a git branch/ref name? */
+  private looksLikeBranch(input: string): boolean {
+    // Branch names: alphanumeric, slashes, hyphens, dots, underscores — no spaces, no @, no file extensions with path separators
+    if (input.includes(' ') || input.startsWith('@') || input.startsWith('/')) return false;
+    // If it has a common file extension, it's probably a file reference
+    if (/\.(ts|js|py|java|go|rs|c|h|cbl|cob|rpg|pli|md|yaml|json|xml|html|css)$/i.test(input))
+      return false;
+    // Must match git ref pattern
+    return /^[a-zA-Z0-9_][a-zA-Z0-9_./-]*$/.test(input);
+  }
+
+  /** Resolve git diff between a branch and HEAD (F17: /review <branch>) */
+  private resolveGitBranchDiff(branch: string): string {
+    if (!this.config.workspaceRoot) return `(no workspace root — cannot resolve git diff)`;
+    try {
+      const diff = execSync(
+        `git diff ${branch}...HEAD --stat && echo --- && git diff ${branch}...HEAD`,
+        {
+          cwd: this.config.workspaceRoot,
+          encoding: 'utf-8',
+          maxBuffer: 1024 * 1024,
+          timeout: 15000,
+        },
+      );
+      return diff || '(no differences found)';
+    } catch {
+      try {
+        // Fallback: try simple diff without merge-base
+        const diff = execSync(`git diff ${branch} HEAD`, {
+          cwd: this.config.workspaceRoot,
+          encoding: 'utf-8',
+          maxBuffer: 1024 * 1024,
+          timeout: 15000,
+        });
+        return diff || '(no differences found)';
+      } catch {
+        return `(unable to resolve diff — branch "${branch}" may not exist)`;
+      }
+    }
+  }
+
+  /** Resolve context for PR creation (F17: /create-pr) */
+  private resolveGitPrContext(baseBranch: string): string {
+    if (!this.config.workspaceRoot) return `(no workspace root — cannot resolve git context)`;
+    const parts: string[] = [];
+    try {
+      const currentBranch = execSync('git branch --show-current', {
+        cwd: this.config.workspaceRoot,
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      parts.push(`Current branch: ${currentBranch}`);
+      parts.push(`Base branch: ${baseBranch}`);
+    } catch {
+      parts.push(`Base branch: ${baseBranch}`);
+    }
+    try {
+      const log = execSync(`git log ${baseBranch}..HEAD --oneline`, {
+        cwd: this.config.workspaceRoot,
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+      if (log) {
+        parts.push(`\nCommits:\n${log}`);
+      }
+    } catch {
+      // Ignore
+    }
+    try {
+      const diff = execSync(`git diff ${baseBranch}...HEAD --stat`, {
+        cwd: this.config.workspaceRoot,
+        encoding: 'utf-8',
+        timeout: 10000,
+      }).trim();
+      if (diff) {
+        parts.push(`\nFiles changed:\n${diff}`);
+      }
+    } catch {
+      // Ignore
+    }
+    try {
+      const fullDiff = execSync(`git diff ${baseBranch}...HEAD`, {
+        cwd: this.config.workspaceRoot,
+        encoding: 'utf-8',
+        maxBuffer: 512 * 1024,
+        timeout: 15000,
+      });
+      if (fullDiff) {
+        // Truncate if very large
+        const truncated =
+          fullDiff.length > 50000
+            ? fullDiff.slice(0, 50000) + '\n\n... (diff truncated — too large)'
+            : fullDiff;
+        parts.push(`\nFull diff:\n${truncated}`);
+      }
+    } catch {
+      // Ignore
+    }
+    return parts.join('\n') || '(unable to resolve git context)';
+  }
+
   private buildSystemPrompt(): string {
     const mode = this.modeEngine.getActive();
+    const repoTree = this.buildCompactRepoTree();
 
-    return [
+    const parts = [
       mode.roleDefinition,
       '',
       mode.customInstructions || '',
@@ -646,11 +862,156 @@ export class AgentLoop {
       '',
       '- Be concise and direct in your responses.',
       '- Use the available tools to accomplish tasks. Call tools rather than describing what you would do.',
+      '- When users ask about architecture, flow, dependencies, or structure, prefer calling generate_diagram and briefly explain the result.',
       '- When modifying files, use apply_diff for targeted changes and write_to_file for new files.',
       '- Always read a file before modifying it.',
       '- Explain what you are doing and why before making changes.',
       '- If a tool call fails, diagnose the error and try a different approach.',
-    ].join('\n');
+      repoTree ? `\n## Workspace Structure\n\n\`\`\`\n${repoTree}\n\`\`\`` : '',
+    ];
+
+    // Inject customization (instructions, CODEOWNERS-scoped) and lifecycle hooks
+    if (this.customizationLoader) {
+      const resolved = this.customizationLoader.resolve([]);
+      if (resolved.systemPromptAdditions.length > 0) {
+        parts.push('\n## Project Instructions\n');
+        parts.push(...resolved.systemPromptAdditions);
+      }
+
+      // Fire onChatStart hooks
+      const hookResult = this.customizationLoader.fireHook({ event: 'onChatStart' });
+      if (hookResult.instructions.length > 0) {
+        parts.push('\n## Active Hooks\n');
+        parts.push(...hookResult.instructions);
+      }
+    }
+
+    // Self-help knowledge: tell the agent where docs are
+    if (this.config.workspaceRoot) {
+      const docsPath = nodePath.join(this.config.workspaceRoot, 'docs', 'pages');
+      try {
+        const fsStat = require('node:fs');
+        if (fsStat.existsSync(docsPath)) {
+          parts.push('\n## Self-Help Documentation\n');
+          parts.push(
+            'When users ask how to use OpenCob, configure features, write instructions, or troubleshoot issues, ' +
+              'read the relevant MDX file from docs/pages/ to provide accurate guidance. Key docs:\n' +
+              '- docs/pages/installation.mdx — Installation & setup\n' +
+              '- docs/pages/getting-started.mdx — First steps, slash commands, modes\n' +
+              '- docs/pages/customization.mdx — Instructions, agents, prompts, .opencob/ structure\n' +
+              '- docs/pages/hooks.mdx — Lifecycle hooks (events, creation, examples)\n' +
+              '- docs/pages/codeowners.mdx — CODEOWNERS integration & owner-scoped instructions\n' +
+              '- docs/pages/modes.mdx — Operating modes & custom agents\n' +
+              '- docs/pages/tools.mdx — Available tools & approval settings\n' +
+              '- docs/pages/commands.mdx — Commands, shortcuts, settings reference\n' +
+              '- docs/pages/mcp.mdx — MCP server configuration\n' +
+              '- docs/pages/troubleshooting.mdx — Common issues & fixes\n' +
+              '\nRead the appropriate file and use its content to answer the user accurately.',
+          );
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return parts.filter(Boolean).join('\n');
+  }
+
+  /** Build a compact repo tree for system prompt context (F6.4) */
+  private buildCompactRepoTree(): string {
+    if (!this.config.workspaceRoot) return '';
+    try {
+      const root = this.config.workspaceRoot;
+      const lines: string[] = [];
+      const maxLines = 60;
+
+      const walk = (dir: string, prefix: string, depth: number): void => {
+        if (depth > 3 || lines.length >= maxLines) return;
+        let entries: import('node:fs').Dirent[];
+        try {
+          entries = require('node:fs').readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        // Skip common non-essential directories
+        const skip = new Set([
+          'node_modules',
+          '.git',
+          'dist',
+          'build',
+          '.next',
+          '.turbo',
+          'coverage',
+          '.nyc_output',
+          '__pycache__',
+          '.venv',
+          'target',
+        ]);
+        entries = entries
+          .filter((e: import('node:fs').Dirent) => !skip.has(e.name) && !e.name.startsWith('.'))
+          .sort((a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
+            a.isDirectory() === b.isDirectory()
+              ? a.name.localeCompare(b.name)
+              : a.isDirectory()
+                ? -1
+                : 1,
+          );
+
+        for (let i = 0; i < entries.length && lines.length < maxLines; i++) {
+          const entry = entries[i];
+          const isLast = i === entries.length - 1;
+          const connector = isLast ? '└── ' : '├── ';
+          const childPrefix = prefix + (isLast ? '    ' : '│   ');
+          lines.push(`${prefix}${connector}${entry.name}${entry.isDirectory() ? '/' : ''}`);
+          if (entry.isDirectory()) {
+            walk(nodePath.join(dir, entry.name), childPrefix, depth + 1);
+          }
+        }
+      };
+
+      const rootName = nodePath.basename(root);
+      lines.push(`${rootName}/`);
+      walk(root, '', 0);
+
+      if (lines.length >= maxLines) {
+        lines.push('... (truncated)');
+      }
+
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Try to parse a text response as a JSON tool call.
+   * Some models output tool parameters as plain text JSON instead of using function calling.
+   * Detects patterns like: {"path":"...", "content":"..."} → write_to_file
+   */
+  private tryParseTextToolCall(
+    text: string,
+  ): { name: string; parameters: Record<string, unknown> } | null {
+    const trimmed = text.trim();
+    // Must look like JSON object
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+    try {
+      const obj = JSON.parse(trimmed);
+      if (typeof obj !== 'object' || obj === null) return null;
+
+      // Pattern: { path: "...", content: "..." } → write_to_file
+      if (typeof obj.path === 'string' && typeof obj.content === 'string' && obj.path.length > 0) {
+        return { name: 'write_to_file', parameters: { path: obj.path, content: obj.content } };
+      }
+
+      // Pattern: { name: "tool_name", parameters: {...} } → direct tool call
+      if (typeof obj.name === 'string' && typeof obj.parameters === 'object') {
+        return { name: obj.name, parameters: obj.parameters };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /** Update the LLM adapter (e.g., when user switches models) */
@@ -678,29 +1039,47 @@ export class AgentLoop {
   }> {
     let content = '';
     const toolCalls: Array<{ name: string; params: Record<string, unknown> }> = [];
+    let lastTextBeforeToolCall = '';
     for await (const event of this.processMessage(prompt)) {
       if (event.type === 'text' && event.text) {
+        lastTextBeforeToolCall += event.text;
         content += event.text;
       } else if (event.type === 'tool_call' && event.toolCall) {
         toolCalls.push({ name: event.toolCall.name, params: event.toolCall.parameters });
+        // If text accumulated before this tool call looks like JSON params, remove it from content
+        const trimmed = lastTextBeforeToolCall.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          content = content.slice(0, content.length - lastTextBeforeToolCall.length);
+        }
+        lastTextBeforeToolCall = '';
+      } else if (event.type !== 'text') {
+        lastTextBeforeToolCall = '';
       }
     }
     return { content, toolCalls };
   }
 
   /** Track a file change after a successful write tool (§8.4.1.1) */
-  private trackFileChange(filePath: string, resultContent: string): void {
-    // Parse lines added/removed from result content heuristically
-    const lines = resultContent.split('\n');
+  private trackFileChange(filePath: string, content: string, toolName?: string): void {
     let added = 0;
     let removed = 0;
-    for (const line of lines) {
-      if (line.startsWith('+') && !line.startsWith('+++')) added++;
-      if (line.startsWith('-') && !line.startsWith('---')) removed++;
-    }
-    // If no diff markers, estimate from content length
-    if (added === 0 && removed === 0) {
-      added = Math.max(1, Math.ceil(resultContent.length / 80));
+
+    if (toolName === 'write_to_file') {
+      // For write_to_file, content is the full new file — count all lines as added
+      added = content.split('\n').length;
+    } else if (toolName === 'apply_diff' || toolName === 'multi_edit') {
+      // For diffs, parse diff markers
+      const lines = content.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('+') && !line.startsWith('+++')) added++;
+        if (line.startsWith('-') && !line.startsWith('---')) removed++;
+      }
+      if (added === 0 && removed === 0) {
+        added = Math.max(1, lines.length);
+      }
+    } else {
+      // insert_content or unknown — count lines in content
+      added = content ? content.split('\n').length : 1;
     }
 
     const existing = this.turnFileChanges.find((f) => f.path === filePath);
@@ -708,7 +1087,12 @@ export class AgentLoop {
       existing.added += added;
       existing.removed += removed;
     } else {
-      this.turnFileChanges.push({ path: filePath, status: 'M', added, removed });
+      this.turnFileChanges.push({
+        path: filePath,
+        status: added > 0 && removed === 0 ? 'A' : 'M',
+        added,
+        removed,
+      });
     }
   }
 
@@ -730,7 +1114,7 @@ export class AgentLoop {
 
   /**
    * Orchestrator mode — decompose task into plan, emit plan_created,
-   * execute steps sequentially, emit plan_step_update per step (§3.17, §8.9.4)
+   * execute steps sequentially with full tool loop, emit plan_step_update per step (§3.17, §8.9.4)
    */
   private async *runOrchestrator(userMessage: string): AsyncIterable<AgentEvent> {
     yield { type: 'phase_change', phase: 'planning' };
@@ -748,7 +1132,7 @@ export class AgentLoop {
     };
     yield { type: 'thinking_end' };
 
-    // Execute each subtask sequentially
+    // Execute each subtask sequentially with full tool loop
     for (const subtask of plan.subtasks) {
       subtask.status = 'running';
       yield {
@@ -765,8 +1149,180 @@ export class AgentLoop {
       yield { type: 'phase_change', phase: 'reasoning' };
       yield { type: 'thinking', thinking: `Working on step ${subtask.id}: ${subtask.description}` };
 
-      // Add subtask prompt to conversation and run inference
+      // Add subtask prompt to conversation
       this.conversationManager.addMessage({ role: 'user', content: subtaskPrompt });
+
+      // Full tool loop for this subtask (same logic as processMessage main loop)
+      let subtaskRounds = 0;
+      let stepResult = '';
+      let stepFailed = false;
+
+      while (subtaskRounds < this.config.maxToolRounds) {
+        subtaskRounds++;
+
+        const systemPrompt = this.buildSystemPrompt();
+        const messages = this.conversationManager.getContextWindow(
+          systemPrompt,
+          this.config.maxContextTokens,
+        );
+        const redactedMessages = this.redactionEngine.redactMessages(messages);
+        const toolDefs = this.toolRegistry.getToolDefinitions();
+
+        yield { type: 'phase_change', phase: 'reasoning' };
+        yield {
+          type: 'thinking',
+          thinking: `Generating response${subtaskRounds > 1 ? ' (round ' + subtaskRounds + ')' : ''}`,
+        };
+
+        let fullResponse = '';
+        let pendingToolCall: { name: string; parameters: Record<string, unknown> } | null = null;
+        let pendingToolCallId = '';
+
+        try {
+          for await (const chunk of this.llm.chat(redactedMessages, { tools: toolDefs })) {
+            switch (chunk.type) {
+              case 'text':
+                if (chunk.text) {
+                  fullResponse += chunk.text;
+                  yield { type: 'text', text: chunk.text };
+                }
+                break;
+              case 'tool_call':
+                if (chunk.toolCall) {
+                  pendingToolCall = chunk.toolCall;
+                  pendingToolCallId = chunk.toolCallId ?? `call_${subtask.id}_${subtaskRounds}`;
+                  yield { type: 'phase_change', phase: 'analysing' };
+                  yield { type: 'tool_call', toolCall: chunk.toolCall };
+                }
+                break;
+              case 'error':
+                yield { type: 'error', error: chunk.error };
+                stepFailed = true;
+                break;
+              case 'done':
+                break;
+            }
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          yield { type: 'error', error: msg };
+          stepFailed = true;
+        }
+
+        if (stepFailed) break;
+
+        // No tool call → subtask complete
+        if (!pendingToolCall) {
+          stepResult = fullResponse;
+          if (fullResponse) {
+            this.conversationManager.addMessage({ role: 'assistant', content: fullResponse });
+          }
+          break;
+        }
+
+        // Save assistant response with tool call
+        this.conversationManager.addMessage({
+          role: 'assistant',
+          content: fullResponse || '',
+          toolCalls: [
+            {
+              id: pendingToolCallId,
+              type: 'function',
+              function: {
+                name: pendingToolCall.name,
+                arguments: JSON.stringify(pendingToolCall.parameters),
+              },
+            },
+          ],
+        });
+
+        // Capture snapshot for undo
+        if (this.snapshotManager) {
+          const editTools = ['write_to_file', 'apply_diff', 'insert_content', 'multi_edit'];
+          if (editTools.includes(pendingToolCall.name)) {
+            const filePath = pendingToolCall.parameters.path as string;
+            if (filePath) this.snapshotManager.captureFile(filePath);
+          }
+        }
+
+        // Execute the tool
+        yield { type: 'phase_change', phase: 'processing' };
+        yield {
+          type: 'thinking',
+          thinking:
+            'Executing ' +
+            pendingToolCall.name +
+            (pendingToolCall.parameters.path ? ': ' + pendingToolCall.parameters.path : ''),
+        };
+        const result = await this.toolRegistry.execute({
+          toolName: pendingToolCall.name,
+          parameters: pendingToolCall.parameters,
+        });
+
+        yield { type: 'phase_change', phase: 'evaluating' };
+        yield {
+          type: 'thinking',
+          thinking: result.success ? 'Tool completed successfully' : 'Tool returned an error',
+        };
+        yield { type: 'tool_result', toolResult: result };
+
+        // Track file changes
+        if (result.success) {
+          const writeTools = ['write_to_file', 'apply_diff', 'insert_content', 'multi_edit'];
+          if (writeTools.includes(pendingToolCall.name)) {
+            const filePath = pendingToolCall.parameters.path as string | undefined;
+            if (filePath) {
+              const fileContent = (pendingToolCall.parameters.content as string) || '';
+              this.trackFileChange(filePath, fileContent, pendingToolCall.name);
+            }
+          }
+        }
+
+        // Add tool result to conversation
+        this.conversationManager.addMessage({
+          role: 'tool',
+          content: result.content,
+          name: pendingToolCall.name,
+          toolCallId: pendingToolCallId,
+        });
+      }
+
+      // Mark subtask done or failed
+      if (stepFailed) {
+        subtask.status = 'failed';
+        subtask.result = 'Step failed';
+        yield { type: 'thinking_end' };
+        yield {
+          type: 'plan_step_update',
+          planStep: { stepIndex: subtask.id - 1, status: 'failed', summary: subtask.result },
+        };
+      } else {
+        subtask.status = 'done';
+        subtask.result = stepResult.slice(0, 500);
+        yield { type: 'thinking_end' };
+        yield {
+          type: 'plan_step_update',
+          planStep: { stepIndex: subtask.id - 1, status: 'done', summary: subtask.result },
+        };
+      }
+    }
+
+    // Restore original mode
+    this.modeEngine.setActive('orchestrator');
+
+    // Final consolidation pass: summarize all step results into one response
+    const completedSteps = plan.subtasks.filter((s) => s.status === 'done' && s.result);
+    if (completedSteps.length > 0) {
+      yield { type: 'phase_change', phase: 'reasoning' };
+      yield { type: 'thinking', thinking: 'Consolidating results into final summary' };
+
+      const summaryContext = completedSteps
+        .map((s) => `## Step ${s.id}: ${s.description}\n${s.result}`)
+        .join('\n\n');
+
+      const summaryPrompt = `You completed a multi-step task with the following results from each step. Provide a single consolidated, well-structured summary that combines the key findings from all steps into one coherent response. Be concise but comprehensive. Do not repeat the step structure — synthesize the information naturally.\n\n${summaryContext}`;
+
+      this.conversationManager.addMessage({ role: 'user', content: summaryPrompt });
 
       const systemPrompt = this.buildSystemPrompt();
       const messages = this.conversationManager.getContextWindow(
@@ -775,39 +1331,23 @@ export class AgentLoop {
       );
       const redactedMessages = this.redactionEngine.redactMessages(messages);
 
-      let stepResult = '';
+      let summaryText = '';
       try {
         for await (const chunk of this.llm.chat(redactedMessages)) {
           if (chunk.type === 'text' && chunk.text) {
-            stepResult += chunk.text;
+            summaryText += chunk.text;
             yield { type: 'text', text: chunk.text };
           }
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        subtask.status = 'failed';
-        subtask.result = msg;
-        yield { type: 'thinking_end' };
-        yield {
-          type: 'plan_step_update',
-          planStep: { stepIndex: subtask.id - 1, status: 'failed', summary: msg },
-        };
-        continue;
+        if (summaryText) {
+          this.conversationManager.addMessage({ role: 'assistant', content: summaryText });
+        }
+      } catch {
+        // Summary failed — step results are already available
       }
 
-      subtask.status = 'done';
-      subtask.result = stepResult.slice(0, 500);
-      this.conversationManager.addMessage({ role: 'assistant', content: stepResult });
-
       yield { type: 'thinking_end' };
-      yield {
-        type: 'plan_step_update',
-        planStep: { stepIndex: subtask.id - 1, status: 'done', summary: subtask.result },
-      };
     }
-
-    // Restore original mode
-    this.modeEngine.setActive('orchestrator');
 
     // Emit changes summary if any files were modified
     const summary = this.buildChangesSummaryEvent();
