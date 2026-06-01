@@ -247,7 +247,9 @@ export class FindingsScanner {
     let paragraphName = '';
     const paragraphNames: string[] = [];
     const referencedParagraphs = new Set<string>();
+    const declarativeParagraphs = new Set<string>();
     let gotoCount = 0;
+    let inDeclaratives = false;
 
     // Detect if file uses sequence numbers (columns 73-80)
     const hasSeqNums =
@@ -264,6 +266,16 @@ export class FindingsScanner {
       if (isComment || codeArea.trim() === '') continue;
 
       const trimmedCode = codeArea.trim().toUpperCase();
+
+      // Track DECLARATIVES section (system-invoked, not dead code)
+      if (/^\s*DECLARATIVES\s*\.\s*$/.test(trimmedCode)) {
+        inDeclaratives = true;
+        continue;
+      }
+      if (/^\s*END\s+DECLARATIVES\s*\.\s*$/.test(trimmedCode)) {
+        inDeclaratives = false;
+        continue;
+      }
 
       // Rule: GO TO statements
       if (/\bGO\s+TO\b/.test(trimmedCode)) {
@@ -315,6 +327,9 @@ export class FindingsScanner {
           paragraphName = headerMatch[1];
           paragraphStart = i;
           paragraphNames.push(paragraphName);
+          if (inDeclaratives) {
+            declarativeParagraphs.add(paragraphName);
+          }
         }
       }
 
@@ -382,6 +397,7 @@ export class FindingsScanner {
       const name = paragraphNames[idx];
       if (
         !referencedParagraphs.has(name) &&
+        !declarativeParagraphs.has(name) &&
         !name.endsWith('-EXIT') &&
         !name.endsWith('-END') &&
         !COBOL_DIVISIONS.has(name)
