@@ -1,5 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <polyline points="8 3 3 12 8 21"/>
-  <polyline points="16 3 21 12 16 21"/>
-  <line x1="14" y1="4" x2="10" y2="20"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+  <style>
+    @keyframes pulse { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }
+    @keyframes silk { 0%,100% { transform: rotate(0); } 50% { transform: rotate(4deg); } }
+    .cob { animation: pulse 2.5s ease-in-out infinite; }
+    .silk { animation: silk 2s ease-in-out infinite; transform-origin: 12px 3px; }
+  </style>
+  <!-- Corn cob head (simplified mascot) -->
+  <g class="cob">
+    <rect x="7" y="5" width="10" height="14" rx="5" stroke="currentColor" stroke-width="1.5"/>
+    <!-- Eyes -->
+    <rect x="9" y="9" width="2" height="2" rx="0.5" fill="currentColor"/>
+    <rect x="13" y="9" width="2" height="2" rx="0.5" fill="currentColor"/>
+    <!-- Smile -->
+    <path d="M10 14 Q12 16 14 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+    <!-- Husks -->
+    <path d="M7 8 Q4 10 5 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M17 8 Q20 10 19 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  </g>
+  <!-- Silk strands -->
+  <g class="silk">
+    <path d="M11 5 Q10.5 3 10 1" stroke="currentColor" stroke-width="0.8" stroke-linecap="round"/>
+    <path d="M12 5 Q12 2.5 12 1" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+    <path d="M13 5 Q13.5 3 14 1" stroke="currentColor" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
 </svg>
