@@ -83,12 +83,39 @@ const VERBS = new Set([
 ]);
 
 function firstWord(line: string): string {
-  const m = line.trim().match(/^([A-Z][\w-]*)/i);
+  const cleaned = stripStringLiterals(line);
+  const m = cleaned.trim().match(/^([A-Z][\w-]*)/i);
   return m ? m[1].toUpperCase() : '';
 }
 
 function isVerb(word: string): boolean {
   return VERBS.has(word) || word.startsWith('END-');
+}
+
+/**
+ * Strip string literals from a line to prevent false keyword matches.
+ * Replaces content inside quotes with spaces (preserves positions).
+ * Handles both single ('...') and double ("...") quoted strings.
+ */
+function stripStringLiterals(line: string): string {
+  let result = '';
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      result += ' ';
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble;
+      result += ' ';
+    } else if (inSingle || inDouble) {
+      result += ' ';
+    } else {
+      result += ch;
+    }
+  }
+  return result;
 }
 
 // ══════════════════════════════════════════════════════════════

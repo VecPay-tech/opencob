@@ -28,6 +28,8 @@ export interface DiagramNode {
   fieldType?: string;
   decimalPos?: number;
   alias?: string;
+  /** Cross-file navigation: relative path to the target file (if known) */
+  fileId?: string;
 }
 
 export interface DiagramEdge {
@@ -328,12 +330,13 @@ export const DIAGRAM_TYPES: Record<FileCategory, string[]> = {
     'field_hierarchy',
     'file_io',
     'copybook_tree',
+    'usage_map',
   ],
-  copybook: ['record_layout', 'field_hierarchy', 'dependency_map', 'copybook_tree'],
-  screen: ['screen_layout', 'dependency_map', 'copybook_tree'],
-  dds: ['record_layout', 'field_hierarchy'],
-  jcl: ['dependency_map'],
-  other: ['dependency_map', 'copybook_tree'],
+  copybook: ['record_layout', 'field_hierarchy', 'dependency_map', 'copybook_tree', 'usage_map'],
+  screen: ['screen_layout', 'dependency_map', 'copybook_tree', 'usage_map'],
+  dds: ['record_layout', 'field_hierarchy', 'usage_map'],
+  jcl: ['dependency_map', 'usage_map'],
+  other: ['dependency_map', 'copybook_tree', 'usage_map'],
 };
 
 /** All valid legacy diagram types */
@@ -347,7 +350,8 @@ export type LegacyDiagramType =
   | 'file_io'
   | 'copybook_tree'
   | 'record_layout'
-  | 'screen_layout';
+  | 'screen_layout'
+  | 'usage_map';
 
 /** Modern language diagram types (kept for backward compat) */
 export type ModernDiagramType = 'call-graph' | 'dependency' | 'structure' | 'class';
