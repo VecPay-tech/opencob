@@ -173,6 +173,20 @@ export class DiagramPanel {
       direction,
     );
 
+    // Screen layout: render as interactive SVG terminal emulator
+    if (
+      result.success &&
+      result.metadata?.format === 'ascii' &&
+      result.metadata?.screenFields &&
+      result.metadata?.screen
+    ) {
+      this.panel.webview.html = this.getScreenLayoutHtml(
+        result.metadata.screen,
+        result.metadata.screenFields,
+      );
+      return;
+    }
+
     const mermaidCode = result.success
       ? this.extractMermaid(result.content)
       : `graph TD\n  ERR["${result.content.replace(/"/g, "'").slice(0, 80)}"]`;
@@ -600,6 +614,474 @@ export class DiagramPanel {
     });
     document.getElementById('btn-legend').addEventListener('click', () => {
       document.getElementById('legend').classList.toggle('hidden');
+    });
+  </script>
+</body>
+</html>`;
+  }
+
+  /**
+   * Render 5250/3270 screen layout as interactive SVG terminal emulator.
+   * Ported from DriverX DiagramPanel.tsx screen renderer.
+   */
+  private getScreenLayoutHtml(
+    screen: {
+      rows?: number;
+      cols?: number;
+      title?: string;
+      platform?: string;
+      funcKeys?: string[];
+    },
+    fields: Array<{
+      id: string;
+      label?: string;
+      displayLabel?: string;
+      type?: string;
+      row?: number;
+      col?: number;
+      length?: number;
+      usage?: string;
+      alias?: string;
+      initial?: string;
+      startLine?: number;
+    }>,
+  ): string {
+    const { availableTypes, currentType, currentZoom } = this.state;
+
+    const typeOptions = availableTypes
+      .map(
+        (t) =>
+          `<option value="${t}"${t === currentType ? ' selected' : ''}>${t.replace(/_/g, ' ')}</option>`,
+      )
+      .join('');
+
+    const screenJson = JSON.stringify(screen);
+    const fieldsJson = JSON.stringify(fields);
+
+    return /* html */ `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenCob Screen Layout</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'IBM Plex Mono', 'Courier New', monospace;
+      background: var(--vscode-editor-background, #1e1e1e);
+      color: var(--vscode-editor-foreground, #ccc);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      padding: 6px 12px;
+      background: var(--vscode-titleBar-activeBackground, #1a1a2e);
+      border-bottom: 1px solid var(--vscode-panel-border, #333);
+      flex-shrink: 0;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .toolbar label {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground, #888);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .toolbar select, .toolbar button {
+      background: var(--vscode-dropdown-background, #2d2d3d);
+      color: var(--vscode-dropdown-foreground, #ccc);
+      border: 1px solid var(--vscode-dropdown-border, #444);
+      border-radius: 3px;
+      padding: 3px 6px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .toolbar select:hover, .toolbar button:hover {
+      border-color: var(--vscode-focusBorder, #4ade80);
+    }
+    .toolbar button { padding: 3px 10px; font-weight: 500; }
+    .toolbar .group { display: flex; align-items: center; gap: 4px; }
+    .toolbar .separator { width: 1px; height: 20px; background: #333; margin: 0 4px; }
+    .toolbar .badge {
+      background: #1e3a5f;
+      color: #38bdf8;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      border: 1px solid #0ea5e9;
+    }
+    .toolbar .info {
+      font-size: 11px;
+      color: #6b7280;
+    }
+    .canvas-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      background: #050510;
+    }
+    .canvas-wrap.dragging { cursor: grabbing; }
+    #screen-svg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+    }
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 12px;
+      background: #0c1222;
+      border-top: 1px solid #1e3a5f;
+      color: #4ade80;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .tooltip {
+      position: absolute;
+      background: #1a1a2e;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 11px;
+      color: #e2e8f0;
+      pointer-events: none;
+      z-index: 100;
+      white-space: pre;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      max-width: 300px;
+    }
+    .tooltip .tt-type { color: #6b7280; font-size: 10px; text-transform: uppercase; }
+    .tooltip .tt-name { color: #4ade80; font-weight: 600; }
+    .tooltip .tt-detail { color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="group">
+      <label>Type</label>
+      <select id="type-select">${typeOptions}</select>
+    </div>
+    <div class="separator"></div>
+    <span class="badge">${screen.platform ?? '5250'}</span>
+    <span class="info">${screen.rows ?? 24}×${screen.cols ?? 80}</span>
+    <span class="info">·</span>
+    <span class="info">${fields.filter((f) => f.type !== 'constant').length} fields</span>
+    <span class="info">·</span>
+    <span class="info">${fields.filter((f) => f.type === 'constant').length} labels</span>
+    <div class="separator"></div>
+    <button id="btn-fit" title="Fit to view">⊡ Fit</button>
+    <button id="btn-reset" title="Reset zoom">1:1</button>
+    <button id="btn-export" title="Export SVG">⬇ Export</button>
+  </div>
+
+  <div class="canvas-wrap" id="canvas">
+    <svg id="screen-svg"></svg>
+  </div>
+
+  <div class="tooltip" id="tooltip" style="display:none"></div>
+
+  <div class="status-bar">
+    <span id="status-left">Hover a field to inspect · Click to jump to source line</span>
+    <span id="status-right">${this.state.filePath.split(/[\\/]/).pop()} · ${screen.title ?? ''}</span>
+  </div>
+
+  <script>
+    const vscode = acquireVsCodeApi();
+    const screen = ${screenJson};
+    const fields = ${fieldsJson};
+
+    const CELL_W = 9.6;
+    const CELL_H = 20;
+    const PAD = 28;
+    const TITLE_H = 32;
+    const FKEY_H = 24;
+
+    const ROWS = screen.rows || 24;
+    const COLS = screen.cols || 80;
+    const svgW = COLS * CELL_W + PAD * 2;
+    const svgH = ROWS * CELL_H + PAD * 2 + TITLE_H + FKEY_H;
+
+    const svg = document.getElementById('screen-svg');
+    const canvas = document.getElementById('canvas');
+    const tooltip = document.getElementById('tooltip');
+
+    let zoom = ${currentZoom / 100};
+    let panX = 0, panY = 0;
+    let isDragging = false, dragStartX = 0, dragStartY = 0, startPanX = 0, startPanY = 0;
+    let didDrag = false;
+
+    function applyTransform() {
+      svg.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + zoom + ')';
+    }
+
+    function buildSvg() {
+      let s = '';
+      // Namespace and viewBox
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      svg.setAttribute('width', String(svgW * zoom));
+      svg.setAttribute('height', String(svgH * zoom));
+      svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + svgH);
+
+      // Terminal background
+      s += '<rect width="' + svgW + '" height="' + svgH + '" rx="8" fill="#0a0a0a"/>';
+
+      // Title bar
+      s += '<rect x="0" y="0" width="' + svgW + '" height="28" rx="8" fill="#1a1a2e"/>';
+      s += '<rect x="0" y="22" width="' + svgW + '" height="6" fill="#1a1a2e"/>';
+      // Window dots
+      s += '<circle cx="14" cy="14" r="5" fill="#ef4444" opacity="0.8"/>';
+      s += '<circle cx="30" cy="14" r="5" fill="#eab308" opacity="0.8"/>';
+      s += '<circle cx="46" cy="14" r="5" fill="#22c55e" opacity="0.8"/>';
+      // Title text
+      const titleText = (screen.title || 'SCREEN').toUpperCase() + ' \\u2014 ' + (screen.platform || '5250') + ' Display';
+      s += '<text x="' + (svgW/2) + '" y="18" text-anchor="middle" font-size="12" font-weight="700" fill="#4ade80" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(titleText) + '</text>';
+
+      // Screen area background
+      const areaX = PAD - 4;
+      const areaY = PAD + TITLE_H - 8;
+      const areaW = COLS * CELL_W + 8;
+      const areaH = ROWS * CELL_H + 8;
+      s += '<rect x="' + areaX + '" y="' + areaY + '" width="' + areaW + '" height="' + areaH + '" rx="2" fill="#0c1222" stroke="#1e3a5f" stroke-width="1"/>';
+
+      // Row numbers
+      for (let r = 0; r < ROWS; r++) {
+        const y = PAD + TITLE_H + r * CELL_H + CELL_H / 2 + 4;
+        s += '<text x="' + (PAD - 8) + '" y="' + y + '" text-anchor="end" font-size="7" fill="#334155" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + (r+1) + '</text>';
+      }
+
+      // Column ruler every 10
+      for (let c = 0; c < Math.floor(COLS/10); c++) {
+        const x = PAD + (c+1) * 10 * CELL_W;
+        s += '<text x="' + x + '" y="' + (PAD + TITLE_H - 12) + '" text-anchor="middle" font-size="7" fill="#334155" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + ((c+1)*10) + '</text>';
+      }
+
+      // Grid lines (subtle)
+      for (let r = 0; r <= ROWS; r++) {
+        const y = PAD + TITLE_H + r * CELL_H;
+        s += '<line x1="' + PAD + '" y1="' + y + '" x2="' + (PAD + COLS * CELL_W) + '" y2="' + y + '" stroke="#1a2332" stroke-width="0.3"/>';
+      }
+
+      // Render fields by type (constants first, then output, then input on top)
+      const constants = fields.filter(f => f.type === 'constant');
+      const outputs = fields.filter(f => f.type === 'output');
+      const inputs = fields.filter(f => f.type === 'input');
+
+      // Constants — green labels
+      for (const f of constants) {
+        if (!f.row || !f.col) continue;
+        const fx = PAD + (f.col - 1) * CELL_W;
+        const fy = PAD + TITLE_H + (f.row - 1) * CELL_H;
+        const fw = (f.length || 1) * CELL_W;
+        const text = (f.displayLabel || f.initial || f.label || '').slice(0, f.length || 10);
+        s += '<g class="field" data-id="' + f.id + '" data-type="constant" data-label="' + escAttr(f.label || '') + '" data-row="' + f.row + '" data-col="' + f.col + '" data-length="' + (f.length||1) + '" data-line="' + (f.startLine||0) + '" data-display="' + escAttr(text) + '">';
+        s += '<rect x="' + fx + '" y="' + (fy+2) + '" width="' + fw + '" height="' + (CELL_H-4) + '" rx="2" fill="#111827" stroke="#1e293b" stroke-width="0.5" class="field-bg"/>';
+        s += '<text x="' + (fx+2) + '" y="' + (fy + CELL_H/2 + 4) + '" font-size="10" fill="#22c55e" font-weight="500" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(text) + '</text>';
+        s += '</g>';
+      }
+
+      // Output fields — bright green
+      for (const f of outputs) {
+        if (!f.row || !f.col) continue;
+        const fx = PAD + (f.col - 1) * CELL_W;
+        const fy = PAD + TITLE_H + (f.row - 1) * CELL_H;
+        const fw = (f.length || 1) * CELL_W;
+        const primary = f.displayLabel || f.alias || f.label || '';
+        const text = primary.length > (f.length || 10) ? primary.slice(0, (f.length||10)-1) + '\\u2026' : primary;
+        s += '<g class="field" data-id="' + f.id + '" data-type="output" data-label="' + escAttr(f.label || '') + '" data-alias="' + escAttr(f.alias || '') + '" data-row="' + f.row + '" data-col="' + f.col + '" data-length="' + (f.length||1) + '" data-line="' + (f.startLine||0) + '" data-display="' + escAttr(text) + '">';
+        s += '<rect x="' + fx + '" y="' + (fy+1) + '" width="' + fw + '" height="' + (CELL_H-2) + '" rx="2" fill="#0c1222" stroke="#166534" stroke-width="0.6" class="field-bg"/>';
+        s += '<text x="' + (fx+2) + '" y="' + (fy + CELL_H/2 + 4) + '" font-size="11" fill="#4ade80" font-weight="500" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(text) + '</text>';
+        // DDS field name above
+        if (f.alias) {
+          s += '<text x="' + (fx+2) + '" y="' + (fy-1) + '" font-size="7" fill="#475569" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(f.label || '') + '</text>';
+        }
+        s += '</g>';
+      }
+
+      // Input fields — cyan with underscores
+      for (const f of inputs) {
+        if (!f.row || !f.col) continue;
+        const fx = PAD + (f.col - 1) * CELL_W;
+        const fy = PAD + TITLE_H + (f.row - 1) * CELL_H;
+        const fw = (f.length || 1) * CELL_W;
+        const underscores = '_'.repeat(Math.min(f.length || 1, 20));
+        const fieldLabel = f.displayLabel || f.alias || f.label || '';
+        s += '<g class="field" data-id="' + f.id + '" data-type="input" data-label="' + escAttr(f.label || '') + '" data-alias="' + escAttr(f.alias || '') + '" data-row="' + f.row + '" data-col="' + f.col + '" data-length="' + (f.length||1) + '" data-usage="' + (f.usage||'') + '" data-line="' + (f.startLine||0) + '" data-display="' + escAttr(fieldLabel) + '">';
+        s += '<rect x="' + fx + '" y="' + (fy+1) + '" width="' + fw + '" height="' + (CELL_H-2) + '" rx="2" fill="#0f172a" stroke="#0ea5e9" stroke-width="1" class="field-bg"/>';
+        // Underscore pattern
+        s += '<text x="' + (fx+1) + '" y="' + (fy + CELL_H/2 + 4) + '" font-size="10" fill="#0ea5e9" opacity="0.3" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + underscores + '</text>';
+        // Field label above
+        s += '<text x="' + (fx+2) + '" y="' + (fy-1) + '" font-size="8" fill="#38bdf8" font-weight="600" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(fieldLabel) + '</text>';
+        // DDS name inside if alias differs
+        if (f.alias && f.alias !== f.label) {
+          s += '<text x="' + (fx+2) + '" y="' + (fy + CELL_H/2 + 4) + '" font-size="9" fill="#64748b" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(f.label || '') + '</text>';
+        }
+        s += '</g>';
+      }
+
+      // Function key bar
+      const funcKeys = screen.funcKeys || [];
+      if (funcKeys.length > 0) {
+        const fkY = PAD + TITLE_H + ROWS * CELL_H + 12;
+        s += '<rect x="' + areaX + '" y="' + fkY + '" width="' + areaW + '" height="18" rx="2" fill="#111827" stroke="#1e293b" stroke-width="0.5"/>';
+        s += '<text x="' + PAD + '" y="' + (fkY + 13) + '" font-size="9" fill="#6b7280" font-family="\\'IBM Plex Mono\\', \\'Courier New\\', monospace">' + escXml(funcKeys.join('  ')) + '</text>';
+      }
+
+      svg.innerHTML = s;
+    }
+
+    function escXml(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function escAttr(str) { return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    buildSvg();
+    applyTransform();
+
+    // Fit to view on load
+    setTimeout(() => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = rect.width / svgW;
+      const scaleY = rect.height / svgH;
+      zoom = Math.min(scaleX, scaleY, 2) * 0.92;
+      panX = (rect.width - svgW * zoom) / 2;
+      panY = (rect.height - svgH * zoom) / 2;
+      applyTransform();
+    }, 50);
+
+    // Mouse wheel zoom
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const oldZoom = zoom;
+      const delta = e.deltaY > 0 ? 0.92 : 1.08;
+      zoom = Math.max(0.2, Math.min(4, zoom * delta));
+      // Zoom toward mouse
+      panX = mx - (zoom / oldZoom) * (mx - panX);
+      panY = my - (zoom / oldZoom) * (my - panY);
+      applyTransform();
+    }, { passive: false });
+
+    // Pan via drag
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.field')) return;
+      isDragging = true;
+      didDrag = false;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      startPanX = panX;
+      startPanY = panY;
+      canvas.classList.add('dragging');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+      if (didDrag) {
+        panX = startPanX + dx;
+        panY = startPanY + dy;
+        applyTransform();
+      }
+    });
+    document.addEventListener('mouseup', () => {
+      isDragging = false;
+      canvas.classList.remove('dragging');
+    });
+
+    // Field hover — tooltip
+    svg.addEventListener('mouseover', (e) => {
+      const field = e.target.closest('.field');
+      if (!field) return;
+      const bg = field.querySelector('.field-bg');
+      if (bg) {
+        bg.setAttribute('data-orig-stroke', bg.getAttribute('stroke'));
+        bg.setAttribute('stroke', '#4ade80');
+        bg.setAttribute('stroke-width', '1.5');
+      }
+      const type = field.dataset.type;
+      const label = field.dataset.label;
+      const alias = field.dataset.alias;
+      const row = field.dataset.row;
+      const col = field.dataset.col;
+      const len = field.dataset.length;
+      const line = field.dataset.line;
+      const display = field.dataset.display;
+      const usage = field.dataset.usage;
+
+      let html = '<div class="tt-type">' + (type || '').toUpperCase() + '</div>';
+      html += '<div class="tt-name">' + escXml(label || '') + '</div>';
+      if (alias) html += '<div class="tt-detail">Alias: ' + escXml(alias) + '</div>';
+      if (display && display !== label) html += '<div class="tt-detail">Display: ' + escXml(display) + '</div>';
+      html += '<div class="tt-detail">Row ' + row + ', Col ' + col + ', Len ' + len + '</div>';
+      if (usage) html += '<div class="tt-detail">Usage: ' + usage + '</div>';
+      if (line && line !== '0') html += '<div class="tt-detail" style="color:#4ade80">Line ' + line + ' — click to jump</div>';
+      tooltip.innerHTML = html;
+      tooltip.style.display = 'block';
+
+      const rect = canvas.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+      tooltip.style.top = (e.clientY - rect.top + 14) + 'px';
+    });
+
+    svg.addEventListener('mousemove', (e) => {
+      if (tooltip.style.display === 'block') {
+        const rect = canvas.getBoundingClientRect();
+        tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+        tooltip.style.top = (e.clientY - rect.top + 14) + 'px';
+      }
+    });
+
+    svg.addEventListener('mouseout', (e) => {
+      const field = e.target.closest('.field');
+      if (!field) return;
+      const bg = field.querySelector('.field-bg');
+      if (bg) {
+        bg.setAttribute('stroke', bg.getAttribute('data-orig-stroke') || '#333');
+        const type = field.dataset.type;
+        bg.setAttribute('stroke-width', type === 'input' ? '1' : '0.6');
+      }
+      tooltip.style.display = 'none';
+    });
+
+    // Field click — navigate to source line
+    svg.addEventListener('click', (e) => {
+      if (didDrag) return;
+      const field = e.target.closest('.field');
+      if (!field) return;
+      const line = parseInt(field.dataset.line || '0');
+      if (line > 0) {
+        document.getElementById('status-left').textContent = '\\u2192 Jumping to line ' + line + '...';
+        vscode.postMessage({ command: 'navigateToLine', line: line });
+      }
+    });
+
+    // Toolbar
+    document.getElementById('type-select').addEventListener('change', (e) => {
+      vscode.postMessage({ command: 'switchType', type: e.target.value });
+    });
+    document.getElementById('btn-fit').addEventListener('click', () => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = rect.width / svgW;
+      const scaleY = rect.height / svgH;
+      zoom = Math.min(scaleX, scaleY, 2) * 0.92;
+      panX = (rect.width - svgW * zoom) / 2;
+      panY = (rect.height - svgH * zoom) / 2;
+      applyTransform();
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      zoom = 1; panX = 0; panY = 0;
+      applyTransform();
+    });
+    document.getElementById('btn-export').addEventListener('click', () => {
+      vscode.postMessage({ command: 'exportSvg', svgContent: svg.outerHTML });
     });
   </script>
 </body>

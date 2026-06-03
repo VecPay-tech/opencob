@@ -69,7 +69,17 @@ const RE_CF_KEY = /CF(\d+)\((\d+)\s+'([^']*)'\)/gi;
 export function parseDds(content: string, filePath: string): DdsParseResult {
   const ext =
     (filePath.split('.').pop()?.toLowerCase() as 'pf' | 'lf' | 'dspf' | 'prtf' | 'dds') ?? 'dds';
-  const isDspf = ext === 'dspf';
+  let isDspf = ext === 'dspf';
+
+  // Content-based DSPF detection: if .dds file contains DSPSIZ, WORKSTN, or CF keys,
+  // it's a display file regardless of extension
+  if (!isDspf && ext === 'dds') {
+    const upper = content.toUpperCase();
+    if (upper.includes('DSPSIZ') || upper.includes('WORKSTN') || /CF\d+\(/.test(upper)) {
+      isDspf = true;
+    }
+  }
+
   const lines = content.split('\n');
   const stem =
     filePath
@@ -79,7 +89,7 @@ export function parseDds(content: string, filePath: string): DdsParseResult {
 
   const result: DdsParseResult = {
     programId: stem,
-    fileType: ext,
+    fileType: isDspf && ext === 'dds' ? 'dspf' : ext,
     records: [],
     allFields: [],
     screenMeta: null,
