@@ -290,6 +290,7 @@ export class FindingsScanner {
       }
       if (/^\s*END\s+DECLARATIVES\s*\.\s*$/.test(trimmedCode)) {
         inDeclaratives = false;
+        currentSection = '';
         continue;
       }
 
