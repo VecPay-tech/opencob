@@ -440,10 +440,17 @@ function generateLegacyDiagram(
   // Check if requested diagram type is valid for this category
   const validTypes = DIAGRAM_TYPES[info.category] ?? [];
   if (!validTypes.includes(diagramType)) {
-    return {
-      success: false,
-      content: `Error: diagram type "${diagramType}" not available for ${info.category} files (.${ext}). Available: ${validTypes.join(', ')}`,
-    };
+    // Allow screen_layout for .dds files that are actually display files (detected by content)
+    const isDdsDisplayFile =
+      info.category === 'dds' &&
+      diagramType === 'screen_layout' &&
+      /DSPSIZ|WORKSTN|CF\d+\(/i.test(content);
+    if (!isDdsDisplayFile) {
+      return {
+        success: false,
+        content: `Error: diagram type "${diagramType}" not available for ${info.category} files (.${ext}). Available: ${validTypes.join(', ')}`,
+      };
+    }
   }
 
   let data: DiagramData | null = null;
@@ -498,6 +505,7 @@ function generateLegacyDiagram(
         platform: info.platform,
         language: info.language,
         screen: data.screen,
+        screenFields: data.nodes,
         fieldCount: data.nodes.length,
       },
     };
@@ -2807,10 +2815,17 @@ export function generateDiagramFromContent(
     requestedType === 'auto' ? inferLegacyTypeFromContent(legacyInfo, content) : requestedType;
   const legacyType = selectedLegacyType as LegacyDiagramType;
   if (!validTypes.includes(legacyType)) {
-    return {
-      success: false,
-      content: `Error: diagram type "${selectedLegacyType}" not available for ${legacyInfo.category} files. Available: ${validTypes.join(', ')}`,
-    };
+    // Allow screen_layout for .dds content that is actually a display file
+    const isDdsDisplayFile =
+      legacyInfo.category === 'dds' &&
+      legacyType === 'screen_layout' &&
+      /DSPSIZ|WORKSTN|CF\d+\(/i.test(content);
+    if (!isDdsDisplayFile) {
+      return {
+        success: false,
+        content: `Error: diagram type "${selectedLegacyType}" not available for ${legacyInfo.category} files. Available: ${validTypes.join(', ')}`,
+      };
+    }
   }
 
   let data: DiagramData | null = null;
@@ -2849,6 +2864,7 @@ export function generateDiagramFromContent(
       platform: legacyInfo.platform,
       language: legacyInfo.language,
       screen: data.screen,
+      screenFields: data.nodes,
       fieldCount: data.nodes.length,
     };
     diagramCache.set(content, requestedType, ascii, metadata, sectionId, direction);
@@ -3031,7 +3047,17 @@ function getActuallyAvailableDiagramsFromContent(
   const upper = content.toUpperCase();
   const hasProcDiv = upper.includes('PROCEDURE DIVISION');
 
-  for (const dtype of candidateTypes) {
+  // For .dds files that are actually display files, include screen_layout
+  let candidates = candidateTypes;
+  if (
+    info.category === 'dds' &&
+    !candidateTypes.includes('screen_layout') &&
+    /DSPSIZ|WORKSTN|CF\d+\(/i.test(content)
+  ) {
+    candidates = [...candidateTypes, 'screen_layout'];
+  }
+
+  for (const dtype of candidates) {
     switch (dtype) {
       case 'call_graph':
         if (/CALL\s+['"]?\w/i.test(content) || /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content)) {
