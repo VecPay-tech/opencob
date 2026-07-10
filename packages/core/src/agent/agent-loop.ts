@@ -100,6 +100,7 @@ export class AgentLoop {
   setLlm(llm: LlmAdapter): void {
     this.llm = llm;
     this.toolCallLoop = new ToolCallLoop(this.buildToolCallLoopOpts());
+    this.orchestratorRunner = new OrchestratorRunner(this.buildOrchestratorOpts());
   }
 
   /** Get current mode */

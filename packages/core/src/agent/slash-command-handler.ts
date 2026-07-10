@@ -1,4 +1,4 @@
-import type { AgentEvent } from './agent-loop.js';
+import type { AgentEvent } from './agent-types.js';
 import type { ModeEngine } from '../modes/mode-engine.js';
 import type { SnapshotManager } from '../checkpoints/snapshot-manager.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
