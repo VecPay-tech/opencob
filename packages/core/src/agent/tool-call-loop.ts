@@ -214,8 +214,8 @@ export class ToolCallLoop {
         if (writeTools.includes(pendingToolCall.name)) {
           const filePath = pendingToolCall.parameters.path as string | undefined;
           if (filePath) {
-            // Use the file content from parameters for accurate line counting
-            const fileContent = (pendingToolCall.parameters.content as string) || '';
+            // Use tool output content so summaries reflect actual applied diff/write result
+            const fileContent = typeof result.content === 'string' ? result.content : '';
             changeTracker.track(filePath, fileContent, pendingToolCall.name);
 
             // Fire onFileChange hook
