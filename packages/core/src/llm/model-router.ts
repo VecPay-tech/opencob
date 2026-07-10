@@ -6,6 +6,10 @@ import type {
   CompletionRequest,
   CompletionResponse,
 } from './types.js';
+import { OpenAiAdapter } from './openai-adapter.js';
+import { AnthropicAdapter } from './anthropic-adapter.js';
+import { GeminiAdapter } from './gemini-adapter.js';
+import { OllamaAdapter } from './ollama-adapter.js';
 
 export type TaskType = 'chat' | 'completion' | 'planning' | 'embedding' | 'enhancement';
 
@@ -86,5 +90,48 @@ export class ModelRouter {
   /** Get all registered adapter names */
   getRegisteredAdapters(): string[] {
     return Array.from(this.adapters.keys());
+  }
+
+  /**
+   * Construct a ModelRouter from environment variables.
+   * Priority: OpenAI > Anthropic > Gemini > Ollama (fallback).
+   * All available adapters are registered; the first available becomes default.
+   */
+  static fromEnv(): ModelRouter {
+    const openaiKey = process.env['OPENAI_API_KEY'];
+    const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+    const googleKey = process.env['GOOGLE_API_KEY'];
+    const ollamaUrl = process.env['OLLAMA_BASE_URL'];
+
+    let defaultAdapter: LlmAdapter;
+    if (openaiKey) {
+      defaultAdapter = new OpenAiAdapter({
+        apiKey: openaiKey,
+        baseUrl: process.env['OPENAI_BASE_URL'],
+      });
+    } else if (anthropicKey) {
+      defaultAdapter = new AnthropicAdapter({ apiKey: anthropicKey });
+    } else if (googleKey) {
+      defaultAdapter = new GeminiAdapter({ apiKey: googleKey });
+    } else {
+      defaultAdapter = new OllamaAdapter({ baseUrl: ollamaUrl });
+    }
+
+    const router = new ModelRouter(defaultAdapter);
+
+    if (openaiKey) {
+      router.registerAdapter(
+        'openai',
+        new OpenAiAdapter({ apiKey: openaiKey, baseUrl: process.env['OPENAI_BASE_URL'] }),
+      );
+    }
+    if (anthropicKey) {
+      router.registerAdapter('anthropic', new AnthropicAdapter({ apiKey: anthropicKey }));
+    }
+    if (googleKey) {
+      router.registerAdapter('gemini', new GeminiAdapter({ apiKey: googleKey }));
+    }
+
+    return router;
   }
 }

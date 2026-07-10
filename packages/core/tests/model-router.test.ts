@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ModelRouter } from '../src/llm/model-router.js';
+import { OllamaAdapter } from '../src/llm/ollama-adapter.js';
 import type {
   LlmAdapter,
   ChatMessage,
@@ -109,5 +110,38 @@ describe('ModelRouter', () => {
     const routes = router.getRoutes();
     expect(routes.chat).toBe('chat-m');
     expect(routes.completion).toBe('comp-m');
+  });
+});
+
+describe('ModelRouter.fromEnv', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('returns a ModelRouter instance', () => {
+    const router = ModelRouter.fromEnv();
+    expect(router).toBeInstanceOf(ModelRouter);
+  });
+
+  it('registers OpenAiAdapter when OPENAI_API_KEY is set', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const router = ModelRouter.fromEnv();
+    const adapter = router.getAdapterForTask('chat');
+    expect(adapter.name).toBe('openai');
+  });
+
+  it('registers AnthropicAdapter when ANTHROPIC_API_KEY is set', () => {
+    vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
+    const router = ModelRouter.fromEnv();
+    const adapter = router.getAdapterForTask('chat');
+    expect(adapter.name).toBe('anthropic');
+  });
+
+  it('falls back to OllamaAdapter when no API key is set', () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    vi.stubEnv('GOOGLE_API_KEY', '');
+    const router = ModelRouter.fromEnv();
+    expect(router.getAdapterForTask('chat')).toBeInstanceOf(OllamaAdapter);
   });
 });

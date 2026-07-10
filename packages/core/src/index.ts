@@ -188,6 +188,9 @@ export {
   type OpenAICompatibleConfig,
   type LiteLLMConfig,
 } from './llm/litellm-adapter.js';
+export { OpenAiAdapter, type OpenAiAdapterOpts } from './llm/openai-adapter.js';
+export { AnthropicAdapter, type AnthropicAdapterOpts } from './llm/anthropic-adapter.js';
+export { GeminiAdapter, type GeminiAdapterOpts } from './llm/gemini-adapter.js';
 export { ModelRouter, type ModelRouteConfig, type TaskType } from './llm/model-router.js';
 
 // Agent
