@@ -93,6 +93,24 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
     return h;
   }
 
+  /**
+   * Newer reasoning/chat models (Azure/OpenAI GPT-5 and the o-series) reject the
+   * legacy `max_tokens` parameter and require `max_completion_tokens`; they also
+   * only accept the default temperature. Build the sampling params accordingly so
+   * requests don't fail with a 400 "Unsupported parameter" error.
+   */
+  private samplingParams(
+    model: string,
+    maxTokens: number,
+    temperature: number,
+  ): Record<string, unknown> {
+    const requiresCompletionTokens = /gpt-5|(^|\/)o[1-9]/i.test(model);
+    if (requiresCompletionTokens) {
+      return { max_completion_tokens: maxTokens };
+    }
+    return { max_tokens: maxTokens, temperature };
+  }
+
   async *chat(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<StreamChunk> {
     const url = `${this.config.baseUrl}/v1/chat/completions`;
     const hasTools = options?.tools && options.tools.length > 0;
@@ -125,8 +143,7 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
       model: this.config.chatModel,
       messages: mappedMessages,
       stream: true,
-      temperature: options?.temperature ?? 0.7,
-      max_tokens: options?.maxTokens ?? 4096,
+      ...this.samplingParams(this.config.chatModel, options?.maxTokens ?? 4096, options?.temperature ?? 0.7),
     };
 
     const response = await fetch(url, {
@@ -195,8 +212,7 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
       model: this.config.chatModel,
       messages: mappedMessages,
       stream: false,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 4096,
+      ...this.samplingParams(this.config.chatModel, options.maxTokens ?? 4096, options.temperature ?? 0.7),
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -293,8 +309,7 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
         { role: 'user', content: userContent },
       ],
       stream: false,
-      temperature: request.temperature ?? 0.2,
-      max_tokens: request.maxTokens ?? 256,
+      ...this.samplingParams(this.config.completionModel, request.maxTokens ?? 256, request.temperature ?? 0.2),
       stop: request.stop,
     };
 

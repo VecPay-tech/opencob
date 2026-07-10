@@ -84,7 +84,12 @@ export class ToolCallLoop {
               break;
 
             case 'tool_call':
-              if (chunk.toolCall) {
+              // Only handle the first tool call per round. Some models (e.g. GPT-5)
+              // return several parallel tool calls in one response; we execute one
+              // per round (the model re-issues the rest after seeing the result).
+              // Emitting a UI event for calls we won't execute leaves orphaned
+              // "running…" cards, so ignore extras here.
+              if (chunk.toolCall && !pendingToolCall) {
                 pendingToolCall = chunk.toolCall;
                 pendingToolCallId = chunk.toolCallId ?? `call_${rounds}`;
                 yield { type: 'phase_change', phase: 'analysing' };
@@ -130,6 +135,13 @@ export class ToolCallLoop {
             role: 'assistant',
             content: fullResponse,
           });
+        } else if (rounds === 1) {
+          // The model returned neither text nor a tool call on the first round.
+          // Surface an actionable message instead of failing silently.
+          yield {
+            type: 'text',
+            text: 'No response was returned by the model. This usually means the provider is misconfigured or unreachable — check the selected model and run "OpenCob: Test Provider Connection".',
+          };
         }
         // Emit changes summary if files were modified during this turn (§8.4.1.1)
         const changeSummary = changeTracker.buildSummaryEvent();
