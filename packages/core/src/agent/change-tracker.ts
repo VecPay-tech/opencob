@@ -1,4 +1,4 @@
-import type { AgentEvent } from './agent-loop.js';
+import type { AgentEvent } from './agent-types.js';
 
 interface FileChange {
   path: string;

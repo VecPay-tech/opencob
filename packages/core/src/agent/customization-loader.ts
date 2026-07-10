@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { CodeOwnersResolver } from './codeowners.js';
 import {
@@ -190,6 +191,49 @@ export class CustomizationLoader {
   /** List available prompt template names (for slash command discovery) */
   listPromptTemplates(): string[] {
     return this.load().prompts.map((p) => p.name);
+  }
+
+  /**
+   * Load custom slash commands from .OpenCob/commands/ (and global ~/.OpenCob/commands/).
+   * Each .md file becomes a command keyed by its basename. Project commands override global.
+   * Equivalent to F17 loadCustomCommands formerly on AgentLoop.
+   */
+  async loadCustomCommands(): Promise<Map<string, { description: string; prompt: string }>> {
+    const commands = new Map<string, { description: string; prompt: string }>();
+    const dirs = [
+      path.resolve(this.workspaceRoot, '.OpenCob', 'commands'),
+      path.resolve(this.workspaceRoot, '.opencob', 'commands'),
+    ];
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    if (home) {
+      dirs.push(path.resolve(home, '.OpenCob', 'commands'));
+      dirs.push(path.resolve(home, '.opencob', 'commands'));
+    }
+    for (const dir of dirs) {
+      try {
+        const files = await fsPromises.readdir(dir);
+        for (const file of files) {
+          if (!file.endsWith('.md')) continue;
+          const content = await fsPromises.readFile(path.resolve(dir, file), 'utf-8');
+          const name = path.basename(file, path.extname(file));
+          let description = name;
+          let prompt = content;
+          if (content.startsWith('---')) {
+            const endIdx = content.indexOf('---', 3);
+            if (endIdx > 0) {
+              const frontmatter = content.slice(3, endIdx);
+              const descMatch = frontmatter.match(/description:\s*(.+)/);
+              if (descMatch) description = descMatch[1].trim();
+              prompt = content.slice(endIdx + 3).trim();
+            }
+          }
+          commands.set(name, { description, prompt });
+        }
+      } catch {
+        // Directory doesn't exist — skip
+      }
+    }
+    return commands;
   }
 
   /** Get tools allowed for a specific agent */
