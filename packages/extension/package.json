@@ -366,7 +366,7 @@
           "OpenCob.litellm.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Bearer token for authenticating with the LiteLLM proxy. Leave empty if your proxy doesn’t require auth."
+            "markdownDescription": "Bearer token for authenticating with the LiteLLM proxy. Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -382,7 +382,7 @@
           "OpenCob.openai.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Your OpenAI API key. Get one at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)."
+            "markdownDescription": "Your OpenAI API key. Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -398,7 +398,7 @@
           "OpenCob.azure.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Azure OpenAI API key from your Azure Portal resource."
+            "markdownDescription": "Azure OpenAI API key from your Azure Portal resource. Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -414,7 +414,7 @@
           "OpenCob.anthropic.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Your Anthropic API key. Get one at [console.anthropic.com](https://console.anthropic.com/)."
+            "markdownDescription": "Your Anthropic API key. Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -430,7 +430,7 @@
           "OpenCob.gemini.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "Your Google AI API key. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)."
+            "markdownDescription": "Your Google AI API key. Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -446,7 +446,7 @@
           "OpenCob.openaiCompatible.apiKey": {
             "type": "string",
             "default": "",
-            "markdownDescription": "API key for your custom endpoint (leave empty if not required)."
+            "markdownDescription": "API key for your custom endpoint (leave empty if not required). Stored in VS Code SecretStorage and migrated out of plain settings on activation."
           }
         }
       },
@@ -546,11 +546,6 @@
             "type": "string",
             "default": "",
             "markdownDescription": "OpenCob Enterprise server URL for team features (telemetry, shared context, policy).\n\nExample: `https://opencob-ee.company.com`"
-          },
-          "OpenCob.enterprise.token": {
-            "type": "string",
-            "default": "",
-            "markdownDescription": "Auth token for Enterprise server. Auto-set when using `OpenCob: Connect to Enterprise Server` command."
           }
         }
       }
