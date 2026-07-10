@@ -18,14 +18,14 @@ OpenCob can generate Mermaid diagrams directly from your source code — no manu
 
 ### Legacy (34 extensions)
 
-| Category | Extensions |
-|---|---|
-| COBOL | `.cob`, `.sbc`, `.ccp`, `.ccc`, `.cbe`, `.cbl`, `.cpy`, `.sqb`, `.pco`, `.cblcpy` |
-| RPG | `.rpg`, `.rpgle`, `.sqlrpgle`, `.sqlrpg` |
-| PL/I | `.pli`, `.pl1`, `.inc` |
-| CL | `.clle`, `.clp`, `.cmd`, `.mnu` |
-| Mainframe | `.map`, `.asm`, `.rma`, `.obs`, `.rmc` |
-| DDS | `.dds`, `.pf`, `.lf`, `.dspf`, `.prtf` |
+| Category  | Extensions                                                                        |
+| --------- | --------------------------------------------------------------------------------- |
+| COBOL     | `.cob`, `.sbc`, `.ccp`, `.ccc`, `.cbe`, `.cbl`, `.cpy`, `.sqb`, `.pco`, `.cblcpy` |
+| RPG       | `.rpg`, `.rpgle`, `.sqlrpgle`, `.sqlrpg`                                          |
+| PL/I      | `.pli`, `.pl1`, `.inc`                                                            |
+| CL        | `.clle`, `.clp`, `.cmd`, `.mnu`                                                   |
+| Mainframe | `.map`, `.asm`, `.rma`, `.obs`, `.rmc`                                            |
+| DDS       | `.dds`, `.pf`, `.lf`, `.dspf`, `.prtf`                                            |
 
 ### Modern (9 extensions)
 
@@ -121,13 +121,13 @@ The QuickPick shows `(recommended: <type>)` based on what the file actually cont
 
 For EE/web/CLI consumers, a stable API is exported from `@opencob/core`:
 
-```typescript
+````typescript
 import {
   listAvailableTypes,
   generateDiagram,
   listSections,
   invalidateDiagramCache,
-  clearDiagramCache
+  clearDiagramCache,
 } from '@opencob/core';
 
 // Check which diagram types apply to this file
@@ -145,7 +145,7 @@ const sections = listSections('PROG001.cbl', source);
 // Cache management
 invalidateDiagramCache('PROG001.cbl', source);
 clearDiagramCache();
-```
+````
 
 ### Caching
 

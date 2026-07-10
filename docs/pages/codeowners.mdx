@@ -50,7 +50,7 @@ Add `owner` to your instruction frontmatter:
 
 ```markdown
 ---
-applyTo: "**/*.ts"
+applyTo: '**/*.ts'
 owner: backend-team
 description: Backend coding standards
 ---
@@ -64,12 +64,14 @@ description: Backend coding standards
 ```
 
 This instruction only activates when:
+
 - An active file matches `**/*.ts` AND
 - That file is owned by `backend-team` in CODEOWNERS
 
 ## Example Setup
 
 Given this CODEOWNERS:
+
 ```
 src/api/**      @backend-team
 src/web/**      @frontend-team
@@ -78,28 +80,34 @@ src/web/**      @frontend-team
 And these instructions:
 
 **.opencob/instructions/backend.instructions.md**
+
 ```markdown
 ---
-applyTo: "src/**"
+applyTo: 'src/**'
 owner: backend-team
 ---
+
 Use repository pattern. No direct DB access from controllers.
 ```
 
 **.opencob/instructions/frontend.instructions.md**
+
 ```markdown
 ---
-applyTo: "src/**"
+applyTo: 'src/**'
 owner: frontend-team
 ---
+
 Use React hooks. No class components. CSS modules only.
 ```
 
 When working on `src/api/users.ts`:
+
 - ✅ Backend instruction activates (file matches applyTo + is owned by backend-team)
 - ❌ Frontend instruction does NOT activate (file is not owned by frontend-team)
 
 When working on `src/web/Dashboard.tsx`:
+
 - ❌ Backend instruction does NOT activate
 - ✅ Frontend instruction activates
 

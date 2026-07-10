@@ -31,28 +31,28 @@ const script = generateBuildScript(objects, 'cl');
 
 ### Supported Source Types
 
-| Category | Extensions |
-|----------|-----------|
-| COBOL | `.cbl`, `.cob`, `.cpy`, `.sqb`, `.pco`, `.sbc`, `.ccp`, `.ccc`, `.cbe`, `.rmc`, `.obs` |
-| CL | `.clle`, `.clp`, `.cmd`, `.mnu` |
-| RPG | `.rpg`, `.rpgle`, `.sqlrpgle`, `.sqlrpg` |
-| DDS | `.pf`, `.lf`, `.dspf`, `.prtf`, `.dds` |
-| PL/I | `.pli`, `.pl1`, `.inc` |
-| Other | `.map`, `.asm`, `.rma` |
+| Category | Extensions                                                                             |
+| -------- | -------------------------------------------------------------------------------------- |
+| COBOL    | `.cbl`, `.cob`, `.cpy`, `.sqb`, `.pco`, `.sbc`, `.ccp`, `.ccc`, `.cbe`, `.rmc`, `.obs` |
+| CL       | `.clle`, `.clp`, `.cmd`, `.mnu`                                                        |
+| RPG      | `.rpg`, `.rpgle`, `.sqlrpgle`, `.sqlrpg`                                               |
+| DDS      | `.pf`, `.lf`, `.dspf`, `.prtf`, `.dds`                                                 |
+| PL/I     | `.pli`, `.pl1`, `.inc`                                                                 |
+| Other    | `.map`, `.asm`, `.rma`                                                                 |
 
 ### Reference Types Detected
 
-| Reference | Source | Example |
-|-----------|--------|---------|
-| COPY | COBOL | `COPY COMMON-WS` |
-| CALL | COBOL/CL | `CALL 'PGM001'` |
-| CICS LINK | COBOL | `EXEC CICS LINK PROGRAM('X')` |
-| CICS XCTL | COBOL | `EXEC CICS XCTL PROGRAM('X')` |
-| DCLF | CL | `DCLF FILE(CUSTPF)` |
-| REF | DDS | `REF(CUSTPF)` |
-| REFFLD | DDS | `REFFLD(FIELD FILE)` |
-| SBMJOB | CL | `SBMJOB CMD(CALL PGM(X))` |
-| file_select | COBOL | `SELECT F ASSIGN TO CUSTPF` |
+| Reference   | Source   | Example                       |
+| ----------- | -------- | ----------------------------- |
+| COPY        | COBOL    | `COPY COMMON-WS`              |
+| CALL        | COBOL/CL | `CALL 'PGM001'`               |
+| CICS LINK   | COBOL    | `EXEC CICS LINK PROGRAM('X')` |
+| CICS XCTL   | COBOL    | `EXEC CICS XCTL PROGRAM('X')` |
+| DCLF        | CL       | `DCLF FILE(CUSTPF)`           |
+| REF         | DDS      | `REF(CUSTPF)`                 |
+| REFFLD      | DDS      | `REFFLD(FIELD FILE)`          |
+| SBMJOB      | CL       | `SBMJOB CMD(CALL PGM(X))`     |
+| file_select | COBOL    | `SELECT F ASSIGN TO CUSTPF`   |
 
 ### .objrefs Support
 
@@ -73,13 +73,13 @@ Given one or more changed files, find everything transitively affected:
 ```ts
 const impact = impactAnalysis(objects, ['CUSTPF.pf', 'COMMON-WS.cpy']);
 
-impact.changed;              // ['custpf', 'common-ws']
-impact.directlyAffected;     // programs that directly use these
+impact.changed; // ['custpf', 'common-ws']
+impact.directlyAffected; // programs that directly use these
 impact.transitivelyAffected; // programs affected via chain
-impact.affectedPrograms;     // only compilable programs (not copybooks)
-impact.totalAffected;        // total count
-impact.buildOrder;           // suggested compile sequence for affected items
-impact.byDepth;              // grouped by BFS depth (0=changed, 1=direct, 2+=transitive)
+impact.affectedPrograms; // only compilable programs (not copybooks)
+impact.totalAffected; // total count
+impact.buildOrder; // suggested compile sequence for affected items
+impact.byDepth; // grouped by BFS depth (0=changed, 1=direct, 2+=transitive)
 ```
 
 ### Impact Markdown
@@ -96,8 +96,8 @@ const md = impactMarkdown(objects, ['CUSTPF.pf']);
 Explore what an object depends on (downstream) or what depends on it (upstream):
 
 ```ts
-const tree = dependencyTree(objects, 'PGM001', 'down');  // what does PGM001 need?
-const tree = dependencyTree(objects, 'CUSTPF', 'up');    // what uses CUSTPF?
+const tree = dependencyTree(objects, 'PGM001', 'down'); // what does PGM001 need?
+const tree = dependencyTree(objects, 'CUSTPF', 'up'); // what uses CUSTPF?
 ```
 
 Returns a recursive tree structure with `maxDepth` limiting (default 10).
@@ -109,11 +109,11 @@ Topological sort via Kahn's algorithm determines safe compile sequence:
 ```ts
 const result = buildOrder(objects);
 
-result.order;       // ['custpf', 'custlf', 'pgm001', 'pgm002', ...]
+result.order; // ['custpf', 'custlf', 'pgm001', 'pgm002', ...]
 result.totalObjects; // compilable objects (COPY excluded)
-result.levels;      // { custpf: 0, pgm001: 1, ... }
-result.buildSteps;  // [{ step: 1, name, objectType, library, relPath }, ...]
-result.cycles;      // objects caught in circular dependencies
+result.levels; // { custpf: 0, pgm001: 1, ... }
+result.buildSteps; // [{ step: 1, name, objectType, library, relPath }, ...]
+result.cycles; // objects caught in circular dependencies
 ```
 
 ### Scoped Builds
@@ -168,16 +168,16 @@ Returns structured steps for CI/CD pipelines:
 
 ### Compile Command Mapping
 
-| Object Type | Command |
-|-------------|---------|
+| Object Type | Command     |
+| ----------- | ----------- |
 | PGM (COBOL) | `CRTBNDCBL` |
-| PGM (CL) | `CRTBNDCL` |
-| FILE (PF) | `CRTPF` |
-| FILE (LF) | `CRTLF` |
-| DSPF | `CRTDSPF` |
-| PRTF | `CRTPRTF` |
-| CMD | `CRTCMD` |
-| MNU | `CRTMNU` |
+| PGM (CL)    | `CRTBNDCL`  |
+| FILE (PF)   | `CRTPF`     |
+| FILE (LF)   | `CRTLF`     |
+| DSPF        | `CRTDSPF`   |
+| PRTF        | `CRTPRTF`   |
+| CMD         | `CRTCMD`    |
+| MNU         | `CRTMNU`    |
 
 ## Repository Summary
 
@@ -186,12 +186,12 @@ Get a high-level overview of the repo's structure:
 ```ts
 const summary = repoSummary(objects);
 
-summary.totalObjects;     // 450
-summary.totalEdges;       // 1200
-summary.byObjectType;     // { PGM: 200, COPY: 150, FILE: 80, ... }
-summary.byLibrary;        // { MYLIB: 300, SHRLIB: 150 }
-summary.orphansCount;     // objects with no connections
-summary.mostDependedOn;   // [{ name: 'COMMON-WS', dependedByCount: 85 }, ...]
+summary.totalObjects; // 450
+summary.totalEdges; // 1200
+summary.byObjectType; // { PGM: 200, COPY: 150, FILE: 80, ... }
+summary.byLibrary; // { MYLIB: 300, SHRLIB: 150 }
+summary.orphansCount; // objects with no connections
+summary.mostDependedOn; // [{ name: 'COMMON-WS', dependedByCount: 85 }, ...]
 ```
 
 ## Unresolved References
@@ -209,18 +209,18 @@ Use this to identify missing copybooks, external programs, or objects that shoul
 
 The engine automatically infers IBM i object types from file extensions:
 
-| Extension | Inferred Type |
-|-----------|--------------|
-| `.cbl`, `.cob`, `.sqb` | PGM |
-| `.clle`, `.clp` | PGM |
-| `.cpy`, `.inc` | COPY |
-| `.pf`, `.dds` | FILE |
-| `.lf` | FILE |
-| `.dspf` | DSPF |
-| `.prtf` | PRTF |
-| `.cmd` | CMD |
-| `.mnu` | MNU |
-| `.rpgle` | PGM |
+| Extension              | Inferred Type |
+| ---------------------- | ------------- |
+| `.cbl`, `.cob`, `.sqb` | PGM           |
+| `.clle`, `.clp`        | PGM           |
+| `.cpy`, `.inc`         | COPY          |
+| `.pf`, `.dds`          | FILE          |
+| `.lf`                  | FILE          |
+| `.dspf`                | DSPF          |
+| `.prtf`                | PRTF          |
+| `.cmd`                 | CMD           |
+| `.mnu`                 | MNU           |
+| `.rpgle`               | PGM           |
 
 ## API Reference
 

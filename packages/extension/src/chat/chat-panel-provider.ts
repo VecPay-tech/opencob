@@ -566,7 +566,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       // Auto-title: on first user message, derive a short title from input text
       this.turnCount++;
       if (this.turnCount === 1) {
-        const title = normalizedText.length > 50 ? normalizedText.slice(0, 47) + '...' : normalizedText;
+        const title =
+          normalizedText.length > 50 ? normalizedText.slice(0, 47) + '...' : normalizedText;
         const active = this.conversationManager.getActive();
         if (active) {
           (

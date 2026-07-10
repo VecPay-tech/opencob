@@ -12,6 +12,7 @@ description: Common issues and solutions for OpenCob
 **Cause**: No API key or provider is set.
 
 **Fix**: Open Settings (`Ctrl+,`) and configure your provider:
+
 ```json
 {
   "opencob.provider": "openai",
@@ -24,6 +25,7 @@ description: Common issues and solutions for OpenCob
 **Cause**: The API key is incorrect or expired.
 
 **Fix**:
+
 1. Verify the key in your provider's dashboard
 2. Check for leading/trailing whitespace
 3. Ensure the key has the correct permissions/tier
@@ -33,6 +35,7 @@ description: Common issues and solutions for OpenCob
 **Cause**: Too many requests to the LLM provider.
 
 **Fix**:
+
 - Wait a moment and try again
 - Consider upgrading your API plan
 - Reduce `opencob.maxToolRounds` to limit API calls per turn
@@ -42,6 +45,7 @@ description: Common issues and solutions for OpenCob
 **Cause**: Ollama server isn't running or wrong port.
 
 **Fix**:
+
 ```bash
 # Start Ollama
 ollama serve
@@ -55,6 +59,7 @@ curl http://localhost:11434/api/tags
 ### Panel shows blank / doesn't load
 
 **Fix**:
+
 1. Reload VS Code (`Ctrl+Shift+P` → "Developer: Reload Window")
 2. Check the Output panel → "OpenCob Chat" for error messages
 3. Ensure Node.js 22+ is installed
@@ -64,12 +69,14 @@ curl http://localhost:11434/api/tags
 **Cause**: Auto-approve is disabled and approval cards aren't visible.
 
 **Fix**:
+
 - Scroll down in the chat — approval card may be below the viewport
 - Enable auto-approve for read operations: `"opencob.autoApprove.readOperations": true`
 
 ### Agent seems stuck / no response
 
 **Fix**:
+
 1. Click the Stop button (⬛) in the input area
 2. Check Output → "OpenCob Chat" for errors
 3. Try clearing the conversation (`/clear`)
@@ -82,6 +89,7 @@ curl http://localhost:11434/api/tags
 **Cause**: `applyTo` pattern doesn't match active files.
 
 **Debug**:
+
 1. Check the pattern uses forward slashes: `src/api/**/*.ts` (not backslashes)
 2. Patterns are relative to workspace root
 3. Verify with `/help` to see what's currently active
@@ -92,6 +100,7 @@ curl http://localhost:11434/api/tags
 **Cause**: Event name is misspelled or `applyTo` doesn't match.
 
 **Debug**:
+
 1. Valid events: `onFileChange`, `onFileSave`, `onChatStart`, `onChatEnd`, `onToolCallBefore`, `onToolCallAfter`, `onModeSwitch`, `onPlanCreated`, `onError`
 2. Check file is in `.opencob/hooks/` with `.md` extension
 3. Verify YAML frontmatter is correctly formatted
@@ -99,6 +108,7 @@ curl http://localhost:11434/api/tags
 ### CODEOWNERS not recognized
 
 **Debug**:
+
 1. Ensure CODEOWNERS file exists in one of: `.opencob/CODEOWNERS`, `.github/CODEOWNERS`, or root `CODEOWNERS`
 2. Owner name in instruction should match without `@` prefix
 3. Check the CODEOWNERS pattern syntax (same as `.gitignore`)
@@ -108,11 +118,13 @@ curl http://localhost:11434/api/tags
 ### Slow responses
 
 **Possible causes**:
+
 - Large workspace (too many files in tree)
 - Model is slow (try a smaller model)
 - Too many instructions/hooks injecting into context
 
 **Fix**:
+
 - Use more specific `applyTo` patterns
 - Reduce the number of active instructions
 - Try a faster model (e.g., `gpt-4o-mini`)
@@ -121,6 +133,7 @@ curl http://localhost:11434/api/tags
 ### High token usage
 
 **Fix**:
+
 - Keep instruction/hook bodies concise
 - Use `applyTo` to limit when instructions activate
 - Reduce `opencob.maxToolRounds`

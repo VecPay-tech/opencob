@@ -192,10 +192,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     const section = providerSectionFor(prov);
-    return vscode.workspace
-      .getConfiguration('OpenCob')
-      .get<string>(`${section}.apiKey`, '')
-      .trim();
+    return vscode.workspace.getConfiguration('OpenCob').get<string>(`${section}.apiKey`, '').trim();
   };
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
