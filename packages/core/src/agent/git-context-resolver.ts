@@ -15,16 +15,23 @@ export class GitContextResolver {
           cwd: workspaceRoot,
           encoding: 'utf-8',
           maxBuffer: 1024 * 1024,
+          timeout: 15000,
         });
       }
       const mergeBase = execSync(`git merge-base ${branch} HEAD`, {
         cwd: workspaceRoot,
         encoding: 'utf-8',
+        timeout: 15000,
       }).trim();
+      // Validate mergeBase before using it in a shell command
+      if (!this.looksLikeBranch(mergeBase) && !/^[0-9a-f]{7,40}$/i.test(mergeBase)) {
+        throw new Error('git merge-base returned an unexpected value');
+      }
       const diff = execSync(`git diff ${mergeBase}..HEAD`, {
         cwd: workspaceRoot,
         encoding: 'utf-8',
         maxBuffer: 1024 * 1024,
+        timeout: 15000,
       });
       return diff || `(no diff between ${branch} and HEAD)`;
     } catch (err) {
@@ -37,6 +44,7 @@ export class GitContextResolver {
       const log = execSync(`git log ${baseBranch}..HEAD --oneline`, {
         cwd: workspaceRoot,
         encoding: 'utf-8',
+        timeout: 15000,
       });
       const diff = this.resolveGitBranchDiff(baseBranch, workspaceRoot);
       return `## Commits\n\n${log}\n\n## Diff\n\n\`\`\`diff\n${diff}\n\`\`\``;

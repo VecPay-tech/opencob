@@ -213,6 +213,13 @@ export class AgentLoop {
         }
       } else if (cmd === '/create-pr') {
         const baseBranch = trimmed.slice(cmd.length).trim() || 'main';
+        if (!this.gitResolver.looksLikeBranch(baseBranch)) {
+          yield {
+            type: 'error',
+            error: 'Invalid branch name: must contain only letters, digits, _, ., /, -',
+          };
+          return;
+        }
         const prContext = this.gitResolver.resolveGitPrContext(
           baseBranch,
           this.config.workspaceRoot ?? process.cwd(),
