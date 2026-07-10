@@ -85,6 +85,7 @@ export class OrchestratorRunner {
       let subtaskRounds = 0;
       let stepResult = '';
       let stepFailed = false;
+      let stepFailureReason = 'Step failed';
 
       while (subtaskRounds < maxToolRounds) {
         subtaskRounds++;
@@ -133,6 +134,7 @@ export class OrchestratorRunner {
           const msg = err instanceof Error ? err.message : String(err);
           yield { type: 'error', error: msg };
           stepFailed = true;
+          stepFailureReason = msg;
         }
 
         if (stepFailed) break;
@@ -198,7 +200,7 @@ export class OrchestratorRunner {
           if (writeTools.includes(pendingToolCall.name)) {
             const filePath = pendingToolCall.parameters.path as string | undefined;
             if (filePath) {
-              const fileContent = (pendingToolCall.parameters.content as string) || '';
+              const fileContent = typeof result.content === 'string' ? result.content : '';
               changeTracker.track(filePath, fileContent, pendingToolCall.name);
             }
           }
@@ -216,7 +218,7 @@ export class OrchestratorRunner {
       // Mark subtask done or failed
       if (stepFailed) {
         subtask.status = 'failed';
-        subtask.result = 'Step failed';
+        subtask.result = stepFailureReason;
         yield { type: 'thinking_end' };
         yield {
           type: 'plan_step_update',
