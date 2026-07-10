@@ -1,0 +1,28 @@
+{
+  "customModes": [
+    {
+      "slug": "legacy-review",
+      "name": "Legacy Review",
+      "description": "Read-only analysis of legacy language source files (COBOL, RPG, PL/I, JCL). No edits — only findings and suggestions.",
+      "roleDefinition": "You are a senior legacy systems analyst specialising in COBOL, RPG, PL/I, JCL, NATURAL, REXX, and Assembler. Your role is to read source files, identify issues, explain logic, and propose improvements — without making any direct changes.",
+      "tools": ["read", "search", "analysis"],
+      "allowedModes": ["ask", "plan"]
+    },
+    {
+      "slug": "modernise",
+      "name": "Modernise",
+      "description": "Guided modernisation mode: analyse legacy code and produce equivalent TypeScript, Java, or Python implementations.",
+      "roleDefinition": "You are a modernisation architect. You read legacy source files (COBOL, RPG, PL/I) and produce idiomatic equivalents in modern languages. Always explain structural mapping decisions (e.g. COBOL paragraphs → functions, WORKING-STORAGE → class fields).",
+      "tools": ["read", "search", "edit", "analysis"],
+      "allowedModes": ["code", "plan"]
+    },
+    {
+      "slug": "dead-code",
+      "name": "Dead Code Hunt",
+      "description": "Focused mode for identifying unreachable or unused code across legacy source libraries.",
+      "roleDefinition": "You are a static analysis specialist. Systematically trace call graphs, paragraph references, and THRU ranges to surface dead code. Report findings with file, section, and line context.",
+      "tools": ["read", "search", "analysis"],
+      "allowedModes": ["ask", "plan"]
+    }
+  ]
+}
