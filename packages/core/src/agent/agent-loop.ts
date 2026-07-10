@@ -17,6 +17,7 @@ import type { HookContext } from './hooks-engine.js';
 import { ChangeTracker } from './change-tracker.js';
 import { GitContextResolver } from './git-context-resolver.js';
 import { SystemPromptBuilder } from './system-prompt-builder.js';
+import { SlashCommandHandler } from './slash-command-handler.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
@@ -115,6 +116,7 @@ export class AgentLoop {
   private changeTracker = new ChangeTracker();
   private gitResolver = new GitContextResolver();
   private promptBuilder: SystemPromptBuilder;
+  private slashHandler: SlashCommandHandler;
 
   constructor(
     llm: LlmAdapter,
@@ -154,6 +156,12 @@ export class AgentLoop {
       skillsLoader: this.config.skillsLoader ?? null,
       workspaceRoot: this.config.workspaceRoot,
     });
+    this.slashHandler = new SlashCommandHandler({
+      modeEngine,
+      snapshotManager: snapshotManager ?? null,
+      toolRegistry,
+      customCommands: this.customCommands,
+    });
   }
 
   /** Hot-swap the LLM adapter (e.g. when user changes provider setting) */
@@ -167,88 +175,14 @@ export class AgentLoop {
 
   /** Process a user message and yield agent events (streaming) */
   async *processMessage(userMessage: string): AsyncIterable<AgentEvent> {
-    // Handle slash commands
-    const slashResult = this.handleSlashCommand(userMessage);
-    if (slashResult) {
-      yield slashResult;
+    // Handle slash commands (mode switches, rewrites, and passthrough)
+    const slashResult = this.slashHandler.handle(userMessage);
+    if (slashResult.kind === 'event') {
+      yield slashResult.event;
       return;
     }
-
-    // Handle prompt-prefix slash commands (/explain, /fix, /test, /review, /create-pr)
     let effectiveMessage = userMessage;
-    const trimmed = userMessage.trim();
-    if (trimmed.startsWith('/')) {
-      const [cmd] = trimmed.split(/\s+/);
-      // Strip mode-switch commands that passed through (had trailing text)
-      const modeOnlyCmds = ['/plan', '/orchestrator', '/code', '/ask', '/advanced'];
-      if (modeOnlyCmds.includes(cmd)) {
-        effectiveMessage = trimmed.slice(cmd.length).trim();
-      }
-      const promptCommands: Record<string, string> = {
-        '/explain':
-          'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
-        '/fix':
-          'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
-        '/test':
-          'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
-        '/diagram':
-          'Generate the most relevant diagram for the following code/context. Prefer Mermaid output and include a short explanation of what the diagram shows. If a specific section is referenced, focus the diagram on that section.\n\n',
-        '/review':
-          'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
-      };
-      if (cmd === '/review') {
-        const remainder = trimmed.slice(cmd.length).trim();
-        // Detect branch name argument (F17: /review <branch>)
-        if (remainder && this.gitResolver.looksLikeBranch(remainder)) {
-          const diff = this.gitResolver.resolveGitBranchDiff(
-            remainder,
-            this.config.workspaceRoot ?? process.cwd(),
-          );
-          effectiveMessage =
-            `Review the following branch diff (comparing "${remainder}" against HEAD) for quality, security, performance, and maintainability issues. Provide a comprehensive analysis with specific improvement suggestions.\n\n` +
-            diff;
-        } else if (!remainder) {
-          // /review alone → review uncommitted changes
-          const diff = this.gitResolver.resolveGitBranchDiff(
-            'HEAD',
-            this.config.workspaceRoot ?? process.cwd(),
-          );
-          effectiveMessage =
-            'Review the following uncommitted changes for quality, security, performance, and maintainability issues. Suggest improvements.\n\n' +
-            diff;
-        } else {
-          effectiveMessage = promptCommands['/review'] + remainder;
-        }
-      } else if (cmd === '/create-pr') {
-        const baseBranch = trimmed.slice(cmd.length).trim() || 'main';
-        if (!this.gitResolver.looksLikeBranch(baseBranch)) {
-          yield {
-            type: 'error',
-            error: 'Invalid branch name: must contain only letters, digits, _, ., /, -',
-          };
-          return;
-        }
-        const prContext = this.gitResolver.resolveGitPrContext(
-          baseBranch,
-          this.config.workspaceRoot ?? process.cwd(),
-        );
-        effectiveMessage =
-          `Generate a pull request title and description for the following changes (comparing current branch against "${baseBranch}"). ` +
-          `Use Conventional Commit style for the title. Structure the description with: ## Summary, ## Changes, ## Testing.\n\n` +
-          prContext;
-      } else if (cmd in promptCommands) {
-        const remainder = trimmed.slice(cmd.length).trim();
-        effectiveMessage = promptCommands[cmd] + remainder;
-      } else {
-        // Check custom commands (F17)
-        const cmdName = cmd.slice(1);
-        if (this.customCommands.has(cmdName)) {
-          const customCmd = this.customCommands.get(cmdName)!;
-          const remainder = trimmed.slice(cmd.length).trim();
-          effectiveMessage = customCmd.prompt + '\n\n' + remainder;
-        }
-      }
-    }
+    if (slashResult.kind === 'rewrite') effectiveMessage = slashResult.message;
 
     // Emit preparing phase
     yield { type: 'phase_change', phase: 'preparing' };
@@ -597,130 +531,6 @@ export class AgentLoop {
       error: `Agent reached maximum tool rounds (${this.config.maxToolRounds}). Stopping.`,
     };
     yield { type: 'done' };
-  }
-
-  private handleSlashCommand(input: string): AgentEvent | null {
-    const trimmed = input.trim();
-    if (!trimmed.startsWith('/')) return null;
-
-    const [command] = trimmed.split(/\s+/);
-    const modeCommands: Record<string, string> = {
-      '/code': 'code',
-      '/ask': 'ask',
-      '/plan': 'orchestrator',
-      '/advanced': 'advanced',
-      '/orchestrator': 'orchestrator',
-    };
-
-    if (command in modeCommands) {
-      const slug = modeCommands[command];
-      this.modeEngine.setActive(slug);
-      const mode = this.modeEngine.getActive();
-      // If there's text after the command, don't return — let processMessage handle it
-      const remainder = trimmed.slice(command.length).trim();
-      if (remainder) {
-        return null; // mode is set, processMessage will use it with the full input
-      }
-      return { type: 'mode_switch', mode: mode.name, text: `Switched to ${mode.name} mode` };
-    }
-
-    if (command === '/new' || command === '/clear') {
-      this.conversationManager.clear();
-      return { type: 'done', text: 'Conversation cleared.' };
-    }
-
-    if (command === '/undo') {
-      if (!this.snapshotManager) {
-        return { type: 'done', text: 'Undo not available — no snapshot manager configured.' };
-      }
-      const result = this.snapshotManager.undoLastTurn();
-      if (!result) {
-        return { type: 'done', text: 'Nothing to undo.' };
-      }
-      const fileList = result.restoredFiles.join('\n  ');
-      return {
-        type: 'done',
-        text: `Undid turn ${result.turnId}. Restored ${result.restoredFiles.length} file(s):\n  ${fileList}`,
-      };
-    }
-
-    if (command === '/help') {
-      const available = this.toolRegistry.listAvailable();
-      const toolList = available.map((t) => `  ${t.name} — ${t.description}`).join('\n');
-      const customCmdList =
-        this.customCommands.size > 0
-          ? Array.from(this.customCommands.entries())
-              .map(([name, cmd]) => `  /${name} — ${cmd.description}`)
-              .join('\n')
-          : '';
-      const help = [
-        'Available commands:',
-        '  /code        — Switch to Code mode',
-        '  /ask         — Switch to Ask mode',
-        '  /plan        — Switch to Plan mode',
-        '  /advanced    — Switch to Advanced mode',
-        '  /orchestrator — Switch to Orchestrator mode',
-        '  /new         — Start a new conversation',
-        '  /clear       — Clear conversation',
-        "  /undo        — Undo last turn's file changes",
-        '  /explain     — Explain selected code or file',
-        '  /fix         — Fix errors in code',
-        '  /test        — Generate tests',
-        '  /diagram     — Generate a relevant diagram from code/context',
-        '  /review      — Review code or branch for issues',
-        '  /create-pr   — Generate PR title and description',
-        '  /help        — Show this help',
-        customCmdList ? `\nCustom commands:\n${customCmdList}` : '',
-        '',
-        `Available tools (${this.modeEngine.getActive().name} mode):`,
-        toolList || '  (no tools available in this mode)',
-      ]
-        .filter(Boolean)
-        .join('\n');
-
-      return { type: 'done', text: help };
-    }
-
-    // Slash commands that inject a prompt prefix and continue to the agent loop
-    const promptCommands: Record<string, string> = {
-      '/explain':
-        'Explain the following code in detail. What does it do, how does it work, and what are the key patterns used?\n\n',
-      '/fix':
-        'Analyze the following code for bugs, errors, and issues. Fix all problems you find and explain each fix.\n\n',
-      '/test':
-        'Generate comprehensive unit tests for the following code. Cover edge cases, error paths, and typical usage.\n\n',
-      '/diagram':
-        'Generate the most relevant diagram for the following code/context. Prefer Mermaid output and include a short explanation of what the diagram shows. If a specific section is referenced, focus the diagram on that section.\n\n',
-      '/review':
-        'Review the following code for quality, security, performance, and maintainability issues. Suggest improvements.\n\n',
-      '/create-pr': '', // Handled specially in processMessage
-    };
-
-    if (command in promptCommands) {
-      const remainder = trimmed.slice(command.length).trim();
-      // Commands that can run without explicit arguments
-      if (
-        !remainder &&
-        command !== '/create-pr' &&
-        command !== '/review' &&
-        command !== '/diagram'
-      ) {
-        return { type: 'done', text: `Usage: ${command} <code or file reference>` };
-      }
-      // Return null so processMessage handles it — but rewrite the message with the prompt prefix
-      return null;
-    }
-
-    // Custom commands from .OpenCob/commands/ (F17)
-    const cmdName = command.slice(1); // remove leading /
-    if (this.customCommands.has(cmdName)) {
-      const _customCmd = this.customCommands.get(cmdName)!;
-      const _remainder = trimmed.slice(command.length).trim();
-      // Return null so processMessage rewrites it with the custom prompt
-      return null;
-    }
-
-    return null;
   }
 
   /** Load custom commands from .OpenCob/commands/ directory (F17) */
