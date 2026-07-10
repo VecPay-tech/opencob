@@ -1,15 +1,3 @@
-import type { LlmAdapter } from '../llm/types.js';
-import { ToolRegistry } from '../tools/tool-registry.js';
-import { ConversationManager } from '../conversation/conversation-manager.js';
-import { ModeEngine } from '../modes/mode-engine.js';
-import { RedactionEngine } from '../security/redaction-engine.js';
-import { MentionParser } from '../context/mention-parser.js';
-import { ConversationCompactor } from './conversation-compactor.js';
-import { PostEditVerifier } from './post-edit-verifier.js';
-import type { SnapshotManager } from '../checkpoints/snapshot-manager.js';
-import type { RAGPipeline } from '../indexer/rag-pipeline.js';
-import type { SkillsLoader } from '../skills/skills-loader.js';
-import { OrchestratorEngine } from './orchestrator-engine.js';
 import { CustomizationLoader } from './customization-loader.js';
 import { ChangeTracker } from './change-tracker.js';
 import { GitContextResolver } from './git-context-resolver.js';
@@ -279,3 +267,4 @@ export class AgentLoop {
     return this.orchestratorRunner.run(userMessage);
   }
 }
+

@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import type { Tool, ToolResult } from './types.js';
 import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 

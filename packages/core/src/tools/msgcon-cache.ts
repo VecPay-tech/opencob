@@ -21,15 +21,6 @@ export interface MsgconEntry {
 /** MSGCON cache: msgId → MsgconEntry */
 const MSGCON_CACHE = new Map<string, MsgconEntry>();
 
-/** Pattern to match MSGCON keyword in DDS/CL source */
-const RE_MSGCON = /MSGCON\(\s*(\d+)\s+(\w+)\s+(\w+)(?:\s+(\w+))?\s*\)/gi;
-
-/** Pattern to match SNDPGMMSG / SNDMSG with MSGID in CL programs */
-const RE_SNDPGMMSG = /SNDPGMMSG\s+.*MSGID\(\s*(\w+)\s*\).*MSGF\(\s*(\w+)(?:\/(\w+))?\s*\)/gi;
-
-/** Pattern to match CHGMSGD entries (message text definitions) */
-const RE_MSGD_TEXT = /CHGMSGD\s+.*MSGID\(\s*(\w+)\s*\).*MSG\(\s*'([^']*)'\s*\)/gi;
-
 /** CL file extensions to scan */
 const CL_EXTENSIONS = new Set(['.clle', '.clp', '.cmd', '.mnu', '.cl']);
 

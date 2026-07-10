@@ -101,15 +101,6 @@
         "title": "OpenCob: Scan Workspace for Issues"
       },
       {
-        "command": "OpenCob.scanFile",
-        "title": "OpenCob: Scan Current File",
-        "icon": "$(search-fuzzy)"
-      },
-      {
-        "command": "OpenCob.scanExplorer",
-        "title": "OpenCob: Quality Scan"
-      },
-      {
         "command": "OpenCob.showFindings",
         "title": "OpenCob: Show Findings in Panel"
       },
@@ -162,29 +153,14 @@
       {
         "command": "OpenCob.literateCoding",
         "title": "OpenCob: Literate Coding"
-      },
-      {
-        "command": "OpenCob.openDocs",
-        "title": "OpenCob: Open Documentation",
-        "icon": "$(book)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "OpenCob.openDocs",
-          "group": "navigation@99",
-          "when": "true"
-        },
-        {
-          "command": "OpenCob.scanFile",
-          "when": "resourceExtname =~ /\\.(cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|map|asm|rma|dds|pf|lf|dspf|prtf|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|ts|tsx|js|jsx|mjs|cjs|py|java|go)/",
-          "group": "navigation@1"
-        },
-        {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|map|asm|rma|dds|pf|lf|dspf|prtf|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|ts|tsx|js|jsx|mjs|cjs|py|java|go)/",
-          "group": "navigation@2"
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "group": "navigation"
         },
         {
           "command": "OpenCob.togglePanel",
@@ -195,37 +171,13 @@
       "editor/context": [
         {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|map|asm|rma|dds|pf|lf|dspf|prtf|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|ts|tsx|js|jsx|mjs|cjs|py|java|go)/",
-          "group": "OpenCob"
-        },
-        {
-          "command": "OpenCob.scanFile",
-          "when": "resourceExtname =~ /\\.(cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|ts|tsx|js|jsx|mjs|cjs|py|java|go)/",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
           "group": "OpenCob"
         },
         {
           "command": "OpenCob.inlineEdit",
           "when": "editorHasSelection",
           "group": "OpenCob"
-        }
-      ],
-      "explorer/context": [
-        {
-          "command": "OpenCob.scanExplorer",
-          "when": "resourceExtname =~ /\\.(cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|ts|tsx|js|jsx|mjs|cjs|py|java|go)/",
-          "group": "OpenCob@1"
-        },
-        {
-          "command": "OpenCob.scanExplorer",
-          "when": "explorerResourceIsFolder",
-          "group": "OpenCob@1"
-        }
-      ],
-      "view/title": [
-        {
-          "command": "OpenCob.openDocs",
-          "when": "view == OpenCob.chatPanel",
-          "group": "navigation"
         }
       ]
     },
@@ -243,30 +195,35 @@
         {
           "type": "webview",
           "id": "OpenCob.chatPanel",
-          "name": "Chat"
+          "name": "Chat",
+          "icon": "resources/icon-activitybar.svg"
         },
         {
           "type": "webview",
           "id": "OpenCob.editsPanel",
           "name": "Edits",
+          "icon": "resources/icon-activitybar.svg",
           "visibility": "collapsed"
         },
         {
           "type": "webview",
           "id": "OpenCob.activity",
           "name": "Activity & Insights",
+          "icon": "resources/icon-activitybar.svg",
           "visibility": "collapsed"
         },
         {
           "type": "tree",
           "id": "OpenCob.findings",
           "name": "Findings",
+          "icon": "resources/icon-activitybar.svg",
           "visibility": "collapsed"
         },
         {
           "type": "webview",
           "id": "OpenCob.settingsPanel",
           "name": "Settings",
+          "icon": "resources/icon-activitybar.svg",
           "visibility": "collapsed"
         }
       ]
@@ -573,15 +530,6 @@
             "order": 5,
             "markdownDescription": "Auto-approve **MCP tool** calls without prompting."
           },
-          "OpenCob.allowExternalPaths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "default": [],
-            "order": 6,
-            "markdownDescription": "Additional folder paths the agent is allowed to read/write. Use this for source folders outside the workspace (e.g. `C:\\Paytech\\worldline\\asccend\\source`)."
-          },
           "OpenCob.promptEnhancement.enabled": {
             "type": "boolean",
             "default": false,
@@ -611,19 +559,15 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
     "watch": "pnpm build --watch",
-    "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint src/",
     "clean": "rimraf dist",
     "package": "vsce package --no-dependencies"
   },
   "dependencies": {
-    "@opencob/core": "workspace:*",
-    "markdown-it": "^14.2.0"
+    "@opencob/core": "workspace:*"
   },
   "devDependencies": {
-    "@types/markdown-it": "^14.1.2",
-    "@types/node": "^25.9.1",
     "@types/vscode": "^1.100.0",
     "@vscode/test-electron": "^2.5.0",
     "esbuild": "^0.25.0",

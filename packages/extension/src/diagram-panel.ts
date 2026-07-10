@@ -1,9 +1,5 @@
 import * as vscode from 'vscode';
-import {
-  generateDiagramFromContent,
-  getAvailableDiagramsFromContent,
-  getSectionsFromContent,
-} from '@opencob/core';
+import { generateDiagramFromContent, getSectionsFromContent } from '@opencob/core';
 
 interface DiagramState {
   content: string;

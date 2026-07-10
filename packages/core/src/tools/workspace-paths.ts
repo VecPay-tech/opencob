@@ -1,4 +1,4 @@
-import { resolve, relative, isAbsolute, basename } from 'node:path';
+import { resolve, relative, isAbsolute } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /**

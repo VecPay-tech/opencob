@@ -202,7 +202,7 @@ export async function loadRules(workspaceRoot: string): Promise<RuleLoadResult> 
 
   const sources: string[] = [configSource];
   const errors: string[] = [];
-  let mergedRules = new Map<string, QualityRule>();
+  const mergedRules = new Map<string, QualityRule>();
 
   // Process extends
   const extends_ = configFile.extends ?? ['opencob:recommended'];
@@ -294,7 +294,7 @@ export function loadRulesSync(workspaceRoot: string): RuleLoadResult {
 
   const sources: string[] = [configSource];
   const errors: string[] = [];
-  let mergedRules = new Map<string, QualityRule>();
+  const mergedRules = new Map<string, QualityRule>();
 
   const extends_ = configFile.extends ?? ['opencob:recommended'];
   for (const preset of extends_) {

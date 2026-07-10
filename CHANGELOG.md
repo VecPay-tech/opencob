@@ -97,3 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI workflows: ci.yaml, codeql.yaml, dependency-review.yaml, release.yaml
 - Community templates: CODEOWNERS, issue templates, PR template
 - Renovate config for automated dependency updates
+
+### Fixed
+
+- **Extension UI alignment** — refreshed OpenCob sidebar/view wiring to better match DESIGN.md interaction flow while keeping manifest-compatible contribution points.
+- **Settings Surface** — restored Settings webview contribution and provider registration in extension activation flow.
+- **Findings Workflow** — run initial findings scan after workspace indexing and keep Findings tree synchronized on workspace scan/save.
+- **Findings Commands** — normalized command registration so `OpenCob.showFindings` is registered once (avoids repeated registration on each file save).
