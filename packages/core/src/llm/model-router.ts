@@ -92,6 +92,11 @@ export class ModelRouter {
     return Array.from(this.adapters.keys());
   }
 
+  /** Get the default adapter (used when no task-specific adapter is registered) */
+  getDefault(): LlmAdapter {
+    return this.defaultAdapter;
+  }
+
   /**
    * Construct a ModelRouter from environment variables.
    * Priority: OpenAI > Anthropic > Gemini > Ollama (fallback).

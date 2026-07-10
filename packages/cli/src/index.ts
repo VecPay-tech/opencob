@@ -45,9 +45,12 @@ const BANNER = `
 async function main(): Promise<void> {
   const workspaceRoot = process.cwd();
 
+  // Detect TTY early — used both for the approval callback and the REPL prompt
+  const isTTY = process.stdin.isTTY === true;
+
   // Build LLM adapter from environment
   const router = ModelRouter.fromEnv();
-  const llm = router.getAdapterForTask('chat');
+  const llm = router.getDefault();
 
   // Initialize core components
   const modeEngine = new ModeEngine();
@@ -60,6 +63,9 @@ async function main(): Promise<void> {
   const toolRegistry = new ToolRegistry(modeEngine, {
     autoApprove: { read: true },
     approvalCallback: async (tool, params) => {
+      // In piped/non-TTY mode stdin is not interactive — auto-approve to avoid
+      // blocking on an exhausted stream (which would silently deny every call).
+      if (!isTTY) return true;
       return new Promise((resolve) => {
         const paramStr = JSON.stringify(params, null, 2);
         console.log(`\n  Tool: ${tool.name}`);
@@ -124,8 +130,6 @@ async function main(): Promise<void> {
   const spinner = new Spinner();
   const renderer = new CliRenderer(spinner);
   const cwd = workspaceRoot;
-
-  const isTTY = process.stdin.isTTY === true;
 
   const rl = createInterface({
     input: process.stdin,
