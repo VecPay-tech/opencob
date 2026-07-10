@@ -7,12 +7,12 @@ description: Operating modes control how the agent behaves — from read-only to
 
 ## Built-in Modes
 
-| Mode | Description | Modifies Files | Runs Commands |
-|---|---|---|---|
-| **Code** | Full autonomous coding agent | ✓ | ✓ |
-| **Ask** | Answer questions, no modifications | ✗ | ✗ |
-| **Plan** | Create and execute task plans | ✓ | ✓ |
-| **Advanced** | Orchestrator with subtask decomposition | ✓ | ✓ |
+| Mode         | Description                             | Modifies Files | Runs Commands |
+| ------------ | --------------------------------------- | -------------- | ------------- |
+| **Code**     | Full autonomous coding agent            | ✓              | ✓             |
+| **Ask**      | Answer questions, no modifications      | ✗              | ✗             |
+| **Plan**     | Create and execute task plans           | ✓              | ✓             |
+| **Advanced** | Orchestrator with subtask decomposition | ✓              | ✓             |
 
 ### Code Mode (Default)
 
@@ -21,6 +21,7 @@ The agent can read files, write files, search code, and run terminal commands. I
 ### Ask Mode
 
 Read-only mode. The agent can read files and search for context but will not modify anything. Use this for:
+
 - Understanding code
 - Getting explanations
 - Architecture discussions
@@ -39,6 +40,7 @@ Use `/plan` or switch to Plan mode before sending your message.
 ### Advanced Mode
 
 Full orchestrator mode with multi-pass execution, including:
+
 - Task complexity classification
 - Subtask mode assignment (each step can be code/ask/plan)
 - Verification passes after changes
@@ -75,13 +77,13 @@ Define custom modes in `.opencob/custom_modes.json`:
 
 Groups control which tool categories the mode can access:
 
-| Group | Tools included |
-|---|---|
-| `read` | read_file, search_files, list_directory, list_code_definitions |
-| `write` | write_to_file, apply_diff, insert_content |
-| `command` | execute_command |
-| `browser` | browser_action |
-| `mcp` | MCP server tools |
+| Group     | Tools included                                                 |
+| --------- | -------------------------------------------------------------- |
+| `read`    | read_file, search_files, list_directory, list_code_definitions |
+| `write`   | write_to_file, apply_diff, insert_content                      |
+| `command` | execute_command                                                |
+| `browser` | browser_action                                                 |
+| `mcp`     | MCP server tools                                               |
 
 ## Custom Agents
 
@@ -95,12 +97,14 @@ tools: [read_file, search_files, list_directory]
 ---
 
 You are a senior software architect. You help with:
+
 - System design decisions
 - Technology selection
 - Architecture documentation
 - Trade-off analysis
 
 You do NOT write implementation code. Instead, you provide:
+
 - Architecture Decision Records (ADRs)
 - Component diagrams (Mermaid)
 - Interface contracts
@@ -108,6 +112,7 @@ You do NOT write implementation code. Instead, you provide:
 ```
 
 Key differences from modes:
+
 - Agents have an explicit `tools` allowlist (whitelist)
 - Agents carry a full persona in their markdown body
 - Agents appear in the mode selector dropdown
@@ -123,6 +128,7 @@ mode: code
 ---
 
 When in code mode:
+
 - Always run tests after making changes
 - Use apply_diff for small changes, write_to_file for new files
 - Read the file before modifying it

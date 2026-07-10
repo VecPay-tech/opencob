@@ -143,7 +143,11 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
       model: this.config.chatModel,
       messages: mappedMessages,
       stream: true,
-      ...this.samplingParams(this.config.chatModel, options?.maxTokens ?? 4096, options?.temperature ?? 0.7),
+      ...this.samplingParams(
+        this.config.chatModel,
+        options?.maxTokens ?? 4096,
+        options?.temperature ?? 0.7,
+      ),
     };
 
     const response = await fetch(url, {
@@ -212,7 +216,11 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
       model: this.config.chatModel,
       messages: mappedMessages,
       stream: false,
-      ...this.samplingParams(this.config.chatModel, options.maxTokens ?? 4096, options.temperature ?? 0.7),
+      ...this.samplingParams(
+        this.config.chatModel,
+        options.maxTokens ?? 4096,
+        options.temperature ?? 0.7,
+      ),
     };
 
     if (options.tools && options.tools.length > 0) {
@@ -309,7 +317,11 @@ export class OpenAICompatibleAdapter implements LlmAdapter {
         { role: 'user', content: userContent },
       ],
       stream: false,
-      ...this.samplingParams(this.config.completionModel, request.maxTokens ?? 256, request.temperature ?? 0.2),
+      ...this.samplingParams(
+        this.config.completionModel,
+        request.maxTokens ?? 256,
+        request.temperature ?? 0.2,
+      ),
       stop: request.stop,
     };
 

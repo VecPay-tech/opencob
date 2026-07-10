@@ -46,7 +46,7 @@ Files in `.opencob/instructions/` use YAML frontmatter to control when they acti
 
 ```markdown
 ---
-applyTo: "src/api/**/*.ts"
+applyTo: 'src/api/**/*.ts'
 description: REST API conventions
 ---
 
@@ -60,19 +60,19 @@ description: REST API conventions
 
 ### Frontmatter Fields
 
-| Field | Required | Description |
-|---|---|---|
-| `applyTo` | ✓ | Glob pattern — instruction activates when any active file matches |
-| `description` | | Human-readable description |
-| `owner` | | CODEOWNERS team/user — only activates for files owned by this owner |
+| Field         | Required | Description                                                         |
+| ------------- | -------- | ------------------------------------------------------------------- |
+| `applyTo`     | ✓        | Glob pattern — instruction activates when any active file matches   |
+| `description` |          | Human-readable description                                          |
+| `owner`       |          | CODEOWNERS team/user — only activates for files owned by this owner |
 
 ### Pattern Examples
 
-| Pattern | Matches |
-|---|---|
-| `**/*.ts` | All TypeScript files |
-| `src/api/**` | All files under src/api/ |
-| `**/*.test.*` | All test files |
+| Pattern            | Matches                        |
+| ------------------ | ------------------------------ |
+| `**/*.ts`          | All TypeScript files           |
+| `src/api/**`       | All files under src/api/       |
+| `**/*.test.*`      | All test files                 |
 | `packages/core/**` | Everything in the core package |
 
 ## Custom Agents

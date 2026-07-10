@@ -55,16 +55,16 @@ opencob --task "Add input validation to all API endpoints" --mode code
 
 Options:
 
-| Flag | Description |
-|---|---|
-| `--task` | Task description to execute |
-| `--mode` | Operating mode (code, ask, plan, advanced) |
-| `--model` | LLM model to use |
-| `--provider` | LLM provider |
-| `--workspace` | Workspace root (default: cwd) |
-| `--auto-approve` | Skip tool approval prompts |
-| `--output` | Output format: text, json, markdown |
-| `--max-rounds` | Maximum tool execution rounds |
+| Flag             | Description                                |
+| ---------------- | ------------------------------------------ |
+| `--task`         | Task description to execute                |
+| `--mode`         | Operating mode (code, ask, plan, advanced) |
+| `--model`        | LLM model to use                           |
+| `--provider`     | LLM provider                               |
+| `--workspace`    | Workspace root (default: cwd)              |
+| `--auto-approve` | Skip tool approval prompts                 |
+| `--output`       | Output format: text, json, markdown        |
+| `--max-rounds`   | Maximum tool execution rounds              |
 
 ## CI/CD Integration
 
@@ -84,15 +84,15 @@ Use headless mode in CI pipelines:
 
 ## REPL Commands
 
-| Command | Description |
-|---|---|
-| `/help` | Show available commands |
-| `/mode <name>` | Switch operating mode |
-| `/model <name>` | Switch LLM model |
-| `/clear` | Clear conversation |
-| `/history` | Show conversation history |
-| `/export` | Export conversation as markdown |
-| `/quit` | Exit the CLI |
+| Command         | Description                     |
+| --------------- | ------------------------------- |
+| `/help`         | Show available commands         |
+| `/mode <name>`  | Switch operating mode           |
+| `/model <name>` | Switch LLM model                |
+| `/clear`        | Clear conversation              |
+| `/history`      | Show conversation history       |
+| `/export`       | Export conversation as markdown |
+| `/quit`         | Exit the CLI                    |
 
 ## Configuration
 
@@ -114,12 +114,12 @@ The CLI reads configuration from:
 
 ## Environment Variables
 
-| Variable | Description |
-|---|---|
-| `OPENCOB_PROVIDER` | LLM provider name |
-| `OPENCOB_MODEL` | Model name |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic API key |
-| `AZURE_OPENAI_ENDPOINT` | Azure endpoint |
-| `AZURE_OPENAI_KEY` | Azure API key |
-| `OPENROUTER_API_KEY` | OpenRouter API key |
+| Variable                | Description        |
+| ----------------------- | ------------------ |
+| `OPENCOB_PROVIDER`      | LLM provider name  |
+| `OPENCOB_MODEL`         | Model name         |
+| `OPENAI_API_KEY`        | OpenAI API key     |
+| `ANTHROPIC_API_KEY`     | Anthropic API key  |
+| `AZURE_OPENAI_ENDPOINT` | Azure endpoint     |
+| `AZURE_OPENAI_KEY`      | Azure API key      |
+| `OPENROUTER_API_KEY`    | OpenRouter API key |

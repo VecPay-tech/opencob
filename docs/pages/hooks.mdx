@@ -14,7 +14,7 @@ Create `.md` files in `.opencob/hooks/`:
 ```markdown
 ---
 event: onFileChange
-applyTo: "src/**/*.ts"
+applyTo: 'src/**/*.ts'
 description: Remind about tests when source files change
 ---
 
@@ -25,26 +25,26 @@ If it doesn't, suggest creating one.
 
 ## Hook Events
 
-| Event | When it fires | Context available |
-|---|---|---|
-| `onFileChange` | After the agent modifies a file | `filePath` |
-| `onFileSave` | After a file is saved to disk | `filePath` |
-| `onChatStart` | At the start of each conversation turn | — |
-| `onChatEnd` | After a conversation turn completes | — |
-| `onToolCallBefore` | Before any tool is executed | `toolName`, `filePath` |
-| `onToolCallAfter` | After a tool finishes executing | `toolName`, `filePath`, `success` |
-| `onModeSwitch` | When the agent switches operating modes | `mode` |
-| `onPlanCreated` | After a task plan is decomposed | — |
-| `onError` | When an error occurs during processing | `error` |
+| Event              | When it fires                           | Context available                 |
+| ------------------ | --------------------------------------- | --------------------------------- |
+| `onFileChange`     | After the agent modifies a file         | `filePath`                        |
+| `onFileSave`       | After a file is saved to disk           | `filePath`                        |
+| `onChatStart`      | At the start of each conversation turn  | —                                 |
+| `onChatEnd`        | After a conversation turn completes     | —                                 |
+| `onToolCallBefore` | Before any tool is executed             | `toolName`, `filePath`            |
+| `onToolCallAfter`  | After a tool finishes executing         | `toolName`, `filePath`, `success` |
+| `onModeSwitch`     | When the agent switches operating modes | `mode`                            |
+| `onPlanCreated`    | After a task plan is decomposed         | —                                 |
+| `onError`          | When an error occurs during processing  | `error`                           |
 
 ## Frontmatter Fields
 
-| Field | Required | Description |
-|---|---|---|
-| `event` | ✓ | The lifecycle event that triggers this hook |
-| `applyTo` | | Glob pattern — hook only fires when the involved file matches |
-| `name` | | Hook name (defaults to filename) |
-| `description` | | Human-readable description |
+| Field         | Required | Description                                                   |
+| ------------- | -------- | ------------------------------------------------------------- |
+| `event`       | ✓        | The lifecycle event that triggers this hook                   |
+| `applyTo`     |          | Glob pattern — hook only fires when the involved file matches |
+| `name`        |          | Hook name (defaults to filename)                              |
+| `description` |          | Human-readable description                                    |
 
 ## Examples
 
@@ -59,6 +59,7 @@ description: Security review before file modifications
 ---
 
 Before writing to any file, verify:
+
 - No secrets, API keys, or credentials are being written
 - No SQL injection vectors are introduced
 - Input validation is present for user-facing code
@@ -72,11 +73,12 @@ Require tests when modifying source code:
 ```markdown
 ---
 event: onFileChange
-applyTo: "src/**/*.ts"
+applyTo: 'src/**/*.ts'
 description: Enforce test coverage for source changes
 ---
 
 A source file was modified. Ensure:
+
 1. The corresponding test file is updated or created
 2. New branches/paths have test coverage
 3. Edge cases are considered
@@ -89,11 +91,12 @@ Prevent certain patterns:
 ```markdown
 ---
 event: onFileChange
-applyTo: "packages/core/**"
+applyTo: 'packages/core/**'
 description: Core package architecture rules
 ---
 
 The core package was modified. Verify:
+
 - No direct `vscode` imports (core must be editor-agnostic)
 - No circular dependencies introduced
 - Public API changes are backward-compatible
@@ -111,6 +114,7 @@ description: Plan quality checklist
 ---
 
 Review the generated plan against:
+
 - Each step should be independently testable
 - Steps should be ordered by dependency (no forward refs)
 - Include a verification step at the end

@@ -1,6 +1,6 @@
 ---
-"@opencob/core": patch
-"opencob": patch
+'@opencob/core': patch
+'opencob': patch
 ---
 
 Fix core and extension defects found during local testing:

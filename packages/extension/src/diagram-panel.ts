@@ -20,11 +20,7 @@ export class DiagramPanel {
   private extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
 
-  private constructor(
-    panel: vscode.WebviewPanel,
-    state: DiagramState,
-    extensionUri: vscode.Uri,
-  ) {
+  private constructor(panel: vscode.WebviewPanel, state: DiagramState, extensionUri: vscode.Uri) {
     this.panel = panel;
     this.state = state;
     this.extensionUri = extensionUri;
