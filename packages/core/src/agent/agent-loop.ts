@@ -178,11 +178,64 @@ export class AgentLoop {
     // Handle slash commands (mode switches, rewrites, and passthrough)
     const slashResult = this.slashHandler.handle(userMessage);
     if (slashResult.kind === 'event') {
+      // Fix 1: /new and /clear must clear the conversation before returning
+      const cmd = userMessage.trim();
+      if (cmd === '/new' || cmd === '/clear') {
+        this.conversationManager.clear();
+      }
       yield slashResult.event;
       return;
     }
     let effectiveMessage = userMessage;
     if (slashResult.kind === 'rewrite') effectiveMessage = slashResult.message;
+
+    // Fix 2: git-resolver logic for /review <branch>, /review (no args), and /create-pr
+    // These need git context resolved here in processMessage because GitContextResolver
+    // requires workspaceRoot which is only available on AgentLoop, not SlashCommandHandler.
+    const trimmedMsg = userMessage.trim();
+    if (trimmedMsg.startsWith('/')) {
+      const [cmd] = trimmedMsg.split(/\s+/);
+      if (cmd === '/review') {
+        const remainder = trimmedMsg.slice(cmd.length).trim();
+        if (remainder && this.gitResolver.looksLikeBranch(remainder)) {
+          // /review <branch> → resolve branch diff and prepend context
+          const diff = this.gitResolver.resolveGitBranchDiff(
+            remainder,
+            this.config.workspaceRoot ?? process.cwd(),
+          );
+          effectiveMessage =
+            `Review the following branch diff (comparing "${remainder}" against HEAD) for quality, security, performance, and maintainability issues. Provide a comprehensive analysis with specific improvement suggestions.\n\n` +
+            diff;
+        } else if (!remainder) {
+          // /review alone → review uncommitted changes (git diff HEAD)
+          const diff = this.gitResolver.resolveGitBranchDiff(
+            'HEAD',
+            this.config.workspaceRoot ?? process.cwd(),
+          );
+          effectiveMessage =
+            'Review the following uncommitted changes for quality, security, performance, and maintainability issues. Suggest improvements.\n\n' +
+            diff;
+        }
+        // else: remainder is not a branch (e.g. inline code) — keep the rewrite from SlashCommandHandler
+      } else if (cmd === '/create-pr') {
+        const baseBranch = trimmedMsg.slice(cmd.length).trim() || 'main';
+        if (!this.gitResolver.looksLikeBranch(baseBranch)) {
+          yield {
+            type: 'error',
+            error: 'Invalid branch name: must contain only letters, digits, _, ., /, -',
+          };
+          return;
+        }
+        const prContext = this.gitResolver.resolveGitPrContext(
+          baseBranch,
+          this.config.workspaceRoot ?? process.cwd(),
+        );
+        effectiveMessage =
+          `Generate a pull request title and description for the following changes (comparing current branch against "${baseBranch}"). ` +
+          `Use Conventional Commit style for the title. Structure the description with: ## Summary, ## Changes, ## Testing.\n\n` +
+          prContext;
+      }
+    }
 
     // Emit preparing phase
     yield { type: 'phase_change', phase: 'preparing' };
