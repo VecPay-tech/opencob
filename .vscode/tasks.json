@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "OpenCob: Build Package Install (local)",
+      "type": "shell",
+      "command": "./scripts/local-vsix-cycle.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenCob: Smoke Reinstall (local)",
+      "type": "shell",
+      "command": "./scripts/local-vsix-smoke.sh",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}
