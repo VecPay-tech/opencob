@@ -15,9 +15,9 @@ import { OrchestratorEngine } from './orchestrator-engine.js';
 import { CustomizationLoader } from './customization-loader.js';
 import type { HookContext } from './hooks-engine.js';
 import { ChangeTracker } from './change-tracker.js';
+import { GitContextResolver } from './git-context-resolver.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
-import { execSync } from 'node:child_process';
 
 export type AgentPhase =
   | 'preparing'
@@ -112,6 +112,7 @@ export class AgentLoop {
   private customizationLoader: CustomizationLoader | null;
   private config: AgentConfig;
   private changeTracker = new ChangeTracker();
+  private gitResolver = new GitContextResolver();
 
   constructor(
     llm: LlmAdapter,
@@ -190,14 +191,20 @@ export class AgentLoop {
       if (cmd === '/review') {
         const remainder = trimmed.slice(cmd.length).trim();
         // Detect branch name argument (F17: /review <branch>)
-        if (remainder && this.looksLikeBranch(remainder)) {
-          const diff = this.resolveGitBranchDiff(remainder);
+        if (remainder && this.gitResolver.looksLikeBranch(remainder)) {
+          const diff = this.gitResolver.resolveGitBranchDiff(
+            remainder,
+            this.config.workspaceRoot ?? process.cwd(),
+          );
           effectiveMessage =
             `Review the following branch diff (comparing "${remainder}" against HEAD) for quality, security, performance, and maintainability issues. Provide a comprehensive analysis with specific improvement suggestions.\n\n` +
             diff;
         } else if (!remainder) {
           // /review alone → review uncommitted changes
-          const diff = this.resolveGitBranchDiff('HEAD');
+          const diff = this.gitResolver.resolveGitBranchDiff(
+            'HEAD',
+            this.config.workspaceRoot ?? process.cwd(),
+          );
           effectiveMessage =
             'Review the following uncommitted changes for quality, security, performance, and maintainability issues. Suggest improvements.\n\n' +
             diff;
@@ -206,7 +213,10 @@ export class AgentLoop {
         }
       } else if (cmd === '/create-pr') {
         const baseBranch = trimmed.slice(cmd.length).trim() || 'main';
-        const prContext = this.resolveGitPrContext(baseBranch);
+        const prContext = this.gitResolver.resolveGitPrContext(
+          baseBranch,
+          this.config.workspaceRoot ?? process.cwd(),
+        );
         effectiveMessage =
           `Generate a pull request title and description for the following changes (comparing current branch against "${baseBranch}"). ` +
           `Use Conventional Commit style for the title. Structure the description with: ## Summary, ## Changes, ## Testing.\n\n` +
@@ -742,107 +752,6 @@ export class AgentLoop {
         // Directory doesn't exist — skip
       }
     }
-  }
-
-  /** Heuristic: does the string look like a git branch/ref name? */
-  private looksLikeBranch(input: string): boolean {
-    // Branch names: alphanumeric, slashes, hyphens, dots, underscores — no spaces, no @, no file extensions with path separators
-    if (input.includes(' ') || input.startsWith('@') || input.startsWith('/')) return false;
-    // If it has a common file extension, it's probably a file reference
-    if (/\.(ts|js|py|java|go|rs|c|h|cbl|cob|rpg|pli|md|yaml|json|xml|html|css)$/i.test(input))
-      return false;
-    // Must match git ref pattern
-    return /^[a-zA-Z0-9_][a-zA-Z0-9_./-]*$/.test(input);
-  }
-
-  /** Resolve git diff between a branch and HEAD (F17: /review <branch>) */
-  private resolveGitBranchDiff(branch: string): string {
-    if (!this.config.workspaceRoot) return `(no workspace root — cannot resolve git diff)`;
-    try {
-      const diff = execSync(
-        `git diff ${branch}...HEAD --stat && echo --- && git diff ${branch}...HEAD`,
-        {
-          cwd: this.config.workspaceRoot,
-          encoding: 'utf-8',
-          maxBuffer: 1024 * 1024,
-          timeout: 15000,
-        },
-      );
-      return diff || '(no differences found)';
-    } catch {
-      try {
-        // Fallback: try simple diff without merge-base
-        const diff = execSync(`git diff ${branch} HEAD`, {
-          cwd: this.config.workspaceRoot,
-          encoding: 'utf-8',
-          maxBuffer: 1024 * 1024,
-          timeout: 15000,
-        });
-        return diff || '(no differences found)';
-      } catch {
-        return `(unable to resolve diff — branch "${branch}" may not exist)`;
-      }
-    }
-  }
-
-  /** Resolve context for PR creation (F17: /create-pr) */
-  private resolveGitPrContext(baseBranch: string): string {
-    if (!this.config.workspaceRoot) return `(no workspace root — cannot resolve git context)`;
-    const parts: string[] = [];
-    try {
-      const currentBranch = execSync('git branch --show-current', {
-        cwd: this.config.workspaceRoot,
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim();
-      parts.push(`Current branch: ${currentBranch}`);
-      parts.push(`Base branch: ${baseBranch}`);
-    } catch {
-      parts.push(`Base branch: ${baseBranch}`);
-    }
-    try {
-      const log = execSync(`git log ${baseBranch}..HEAD --oneline`, {
-        cwd: this.config.workspaceRoot,
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim();
-      if (log) {
-        parts.push(`\nCommits:\n${log}`);
-      }
-    } catch {
-      // Ignore
-    }
-    try {
-      const diff = execSync(`git diff ${baseBranch}...HEAD --stat`, {
-        cwd: this.config.workspaceRoot,
-        encoding: 'utf-8',
-        timeout: 10000,
-      }).trim();
-      if (diff) {
-        parts.push(`\nFiles changed:\n${diff}`);
-      }
-    } catch {
-      // Ignore
-    }
-    try {
-      const fullDiff = execSync(`git diff ${baseBranch}...HEAD`, {
-        cwd: this.config.workspaceRoot,
-        encoding: 'utf-8',
-        maxBuffer: 512 * 1024,
-        timeout: 15000,
-      });
-      if (fullDiff) {
-        // Truncate if very large
-        const truncated =
-          fullDiff.length > 50000
-            ? fullDiff.slice(0, 50000) + '\n\n... (diff truncated — too large)'
-            : fullDiff;
-        parts.push(`\nFull diff:\n${truncated}`);
-      }
-    } catch {
-      // Ignore
-    }
-    return parts.join('\n') || '(unable to resolve git context)';
   }
 
   private buildSystemPrompt(): string {
