@@ -1,0 +1,52 @@
+name: Package Extension
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  package:
+    name: Build VSIX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm build
+
+      - name: Package VS Code extension
+        working-directory: packages/extension
+        run: pnpm package
+
+      - name: Find VSIX
+        id: vsix
+        run: echo "path=$(ls packages/extension/*.vsix | head -1)" >> $GITHUB_OUTPUT
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencob-vsix
+          path: ${{ steps.vsix.outputs.path }}
+          retention-days: 14
+
+      - name: Attach VSIX to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vsix.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
