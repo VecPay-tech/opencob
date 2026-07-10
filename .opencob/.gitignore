@@ -1,0 +1,3 @@
+# Ignore user-specific OpenCob files
+conversations.json
+conversations.json.bak

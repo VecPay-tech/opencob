@@ -51,6 +51,7 @@ pnpm build        # Build all packages (Turborepo)
 pnpm test         # Run all tests (Vitest)
 pnpm lint         # Lint all packages (ESLint)
 pnpm typecheck    # Type-check all packages (tsc --noEmit)
+pnpm validate:opencob # Validate .opencob shared agent config
 pnpm format       # Format code (Prettier)
 pnpm format:check # Check formatting without changes
 ```
@@ -109,6 +110,7 @@ Open an issue or discussion before submitting PRs for:
 - [ ] Build succeeds (`pnpm build`)
 - [ ] Linting passes (`pnpm lint`)
 - [ ] Types check (`pnpm typecheck`)
+- [ ] OpenCob config validates (`pnpm validate:opencob`)
 - [ ] Formatting is correct (`pnpm format:check`)
 - [ ] Changeset added (if user-facing change)
 
