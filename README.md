@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="https://github.com/nicholasgriffintn/opencob/actions"><img src="https://img.shields.io/github/actions/workflow/status/opencob/opencob/ci.yaml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/mountek/opencob/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/mountek/opencob/ci.yaml?branch=main&label=CI" alt="CI"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=opencob.opencob"><img src="https://img.shields.io/badge/VS%20Code-Marketplace-007ACC" alt="VS Code Marketplace"></a>
 </p>
 
@@ -38,7 +38,7 @@ OpenCob is a **free, open-source AI coding assistant** that runs entirely on you
 ### Install & Build
 
 ```bash
-git clone https://github.com/opencob/opencob.git
+git clone https://github.com/mountek/opencob.git
 cd opencob
 pnpm install
 pnpm build

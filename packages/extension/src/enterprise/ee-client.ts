@@ -86,6 +86,10 @@ export class EEClient {
     return this.user;
   }
 
+  getToken(): string | null {
+    return this.token;
+  }
+
   /**
    * Connect to an EE server: health check → login → capabilities exchange
    */

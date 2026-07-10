@@ -116,6 +116,11 @@ Open an issue or discussion before submitting PRs for:
 
 ## Coding Standards
 
+### Security
+
+- Store extension credentials in VS Code SecretStorage (`context.secrets`), not plain settings.
+- Do not hardcode API keys, tokens, or test secrets in source files.
+
 ### TypeScript
 
 - **Strict mode** enabled (`strict: true` in tsconfig).

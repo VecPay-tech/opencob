@@ -85,7 +85,7 @@ function computeWorkspaceRoot(): string {
   return path.join(root, ...commonParts);
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const workspaceRoot = computeWorkspaceRoot();
 
   // Load configuration
@@ -111,6 +111,76 @@ export function activate(context: vscode.ExtensionContext): void {
   let config = vscode.workspace.getConfiguration('OpenCob');
   let provider = config.get<string>('model.provider', 'ollama');
 
+  const providerSectionFor = (prov: string): string =>
+    prov === 'openai-compatible' ? 'openaiCompatible' : prov;
+  const apiKeySecretIdFor = (prov: string): string | null => {
+    const section = providerSectionFor(prov);
+    const supportedSections = new Set([
+      'litellm',
+      'openai',
+      'azure',
+      'anthropic',
+      'gemini',
+      'openaiCompatible',
+    ]);
+    if (!supportedSections.has(section)) return null;
+    return `opencob.${section}.apiKey`;
+  };
+
+  const migrateLegacySecretSetting = async (
+    settingKey: string,
+    secretId: string,
+  ): Promise<void> => {
+    const settingValue = vscode.workspace.getConfiguration('OpenCob').get<string>(settingKey, '');
+    const legacyValue = settingValue.trim();
+    if (!legacyValue) return;
+
+    const existingSecret = await context.secrets.get(secretId);
+    if (!existingSecret) {
+      await context.secrets.store(secretId, legacyValue);
+    }
+
+    await vscode.workspace
+      .getConfiguration('OpenCob')
+      .update(settingKey, '', vscode.ConfigurationTarget.Global);
+  };
+
+  const migrateLegacySecrets = async (): Promise<void> => {
+    const providers = ['litellm', 'openai', 'azure', 'anthropic', 'gemini', 'openai-compatible'];
+    for (const prov of providers) {
+      const section = providerSectionFor(prov);
+      const secretId = apiKeySecretIdFor(prov);
+      if (!secretId) continue;
+      await migrateLegacySecretSetting(`${section}.apiKey`, secretId);
+    }
+    await migrateLegacySecretSetting('enterprise.token', 'opencob.enterprise.token');
+  };
+
+  const getProviderApiKey = async (prov: string): Promise<string> => {
+    const secretId = apiKeySecretIdFor(prov);
+    if (!secretId) return '';
+
+    const fromSecret = await context.secrets.get(secretId);
+    if (fromSecret && fromSecret.trim().length > 0) return fromSecret;
+
+    const section = providerSectionFor(prov);
+    const fromSettings = vscode.workspace
+      .getConfiguration('OpenCob')
+      .get<string>(`${section}.apiKey`, '')
+      .trim();
+    if (fromSettings) {
+      await context.secrets.store(secretId, fromSettings);
+      await vscode.workspace
+        .getConfiguration('OpenCob')
+        .update(`${section}.apiKey`, '', vscode.ConfigurationTarget.Global);
+      return fromSettings;
+    }
+
+    return '';
+  };
+
+  await migrateLegacySecrets();
+
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = `$(hubot) ${config.get<string>('model.chat', 'qwen2.5-coder:7b')}`;
   statusBarItem.tooltip = 'OpenCob — Click to switch model';
@@ -119,7 +189,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(statusBarItem);
 
   // Helper to create the appropriate LLM adapter based on provider setting
-  function createLlmAdapterFromConfig(): OllamaAdapter | OpenAICompatibleAdapter {
+  async function createLlmAdapterFromConfig(): Promise<OllamaAdapter | OpenAICompatibleAdapter> {
     const cfg = vscode.workspace.getConfiguration('OpenCob');
     const prov = cfg.get<string>('model.provider', 'ollama');
     if (prov === 'ollama') {
@@ -131,9 +201,10 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const presets = PROVIDER_PRESETS[prov] ?? PROVIDER_PRESETS['openai-compatible'];
     const providerSection = prov === 'openai-compatible' ? 'openaiCompatible' : prov;
+    const apiKey = await getProviderApiKey(prov);
     return new OpenAICompatibleAdapter({
       baseUrl: cfg.get<string>(`${providerSection}.baseUrl`, presets.baseUrl ?? ''),
-      apiKey: cfg.get<string>(`${providerSection}.apiKey`, ''),
+      apiKey,
       chatModel: cfg.get<string>('model.chat', presets.chatModel ?? 'gpt-4o'),
       completionModel: cfg.get<string>(
         'model.completion',
@@ -144,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   // Create the appropriate LLM adapter based on provider setting
-  let llmAdapter = createLlmAdapterFromConfig();
+  let llmAdapter = await createLlmAdapterFromConfig();
 
   const fileFilter = new FileFilter(workspaceRoot);
   fileFilter.loadIgnoreFile();
@@ -935,7 +1006,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Auto-connect if token and URL are saved in settings
   const eeServerUrl = config.get<string>('enterprise.serverUrl', '');
-  const eeToken = config.get<string>('enterprise.token', '');
+  const eeToken =
+    (await context.secrets.get('opencob.enterprise.token')) ||
+    config.get<string>('enterprise.token', '');
+  if (config.get<string>('enterprise.token', '').trim()) {
+    await vscode.workspace
+      .getConfiguration('OpenCob')
+      .update('enterprise.token', '', vscode.ConfigurationTarget.Global);
+  }
   if (eeServerUrl && eeToken) {
     eeClient.connectWithToken(eeServerUrl, eeToken).catch(() => {
       // Silent failure on startup — user can reconnect manually
@@ -963,13 +1041,13 @@ export function activate(context: vscode.ExtensionContext): void {
         await vscode.workspace
           .getConfiguration('OpenCob')
           .update('enterprise.serverUrl', serverUrl, vscode.ConfigurationTarget.Global);
+        const token = state.user ? (eeClient.getToken() ?? '') : '';
+        if (token) {
+          await context.secrets.store('opencob.enterprise.token', token);
+        }
         await vscode.workspace
           .getConfiguration('OpenCob')
-          .update(
-            'enterprise.token',
-            state.user ? eeClient['token'] : '',
-            vscode.ConfigurationTarget.Global,
-          );
+          .update('enterprise.token', '', vscode.ConfigurationTarget.Global);
 
         const caps = state.capabilities?.capabilities;
         const capList = caps
@@ -990,6 +1068,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('OpenCob.disconnectEnterprise', async () => {
       eeClient.disconnect();
+      await context.secrets.delete('opencob.enterprise.token');
       await vscode.workspace
         .getConfiguration('OpenCob')
         .update('enterprise.token', '', vscode.ConfigurationTarget.Global);
@@ -1000,7 +1079,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Listen for provider/connection settings changes and hot-swap the adapter
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (
+      const settingsTouched =
         e.affectsConfiguration('OpenCob.model.provider') ||
         e.affectsConfiguration('OpenCob.ollama') ||
         e.affectsConfiguration('OpenCob.litellm') ||
@@ -1008,11 +1087,17 @@ export function activate(context: vscode.ExtensionContext): void {
         e.affectsConfiguration('OpenCob.azure') ||
         e.affectsConfiguration('OpenCob.anthropic') ||
         e.affectsConfiguration('OpenCob.gemini') ||
-        e.affectsConfiguration('OpenCob.openaiCompatible')
-      ) {
+        e.affectsConfiguration('OpenCob.openaiCompatible');
+
+      if (!settingsTouched) {
+        return;
+      }
+
+      void (async () => {
+        await migrateLegacySecrets();
         config = vscode.workspace.getConfiguration('OpenCob');
         provider = config.get<string>('model.provider', 'ollama');
-        llmAdapter = createLlmAdapterFromConfig();
+        llmAdapter = await createLlmAdapterFromConfig();
         agentLoop.setLlmAdapter(llmAdapter);
         statusBarItem.text = `$(hubot) ${llmAdapter.getChatModel()}`;
         chatProvider.setModel(llmAdapter.getChatModel());
@@ -1022,7 +1107,7 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         // Auto-test the new provider
         vscode.commands.executeCommand('OpenCob.testConnection');
-      }
+      })();
     }),
   );
 
