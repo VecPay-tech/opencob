@@ -14,6 +14,7 @@ import type { SkillsLoader } from '../skills/skills-loader.js';
 import { OrchestratorEngine } from './orchestrator-engine.js';
 import { CustomizationLoader } from './customization-loader.js';
 import type { HookContext } from './hooks-engine.js';
+import { ChangeTracker } from './change-tracker.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { execSync } from 'node:child_process';
@@ -110,12 +111,7 @@ export class AgentLoop {
   private orchestrator: OrchestratorEngine;
   private customizationLoader: CustomizationLoader | null;
   private config: AgentConfig;
-  private turnFileChanges: Array<{
-    path: string;
-    status: 'M' | 'A' | 'D' | 'R';
-    added: number;
-    removed: number;
-  }> = [];
+  private changeTracker = new ChangeTracker();
 
   constructor(
     llm: LlmAdapter,
@@ -233,7 +229,7 @@ export class AgentLoop {
     yield { type: 'phase_change', phase: 'preparing' };
 
     // Reset file changes tracking for this turn
-    this.turnFileChanges = [];
+    this.changeTracker.reset();
 
     // Orchestrator mode delegation (§3.17, §8.9.4)
     const activeMode = this.modeEngine.getActive();
@@ -417,7 +413,7 @@ export class AgentLoop {
           });
         }
         // Emit changes summary if files were modified during this turn (§8.4.1.1)
-        const changeSummary = this.buildChangesSummaryEvent();
+        const changeSummary = this.changeTracker.buildSummaryEvent();
         if (changeSummary) yield changeSummary;
         yield { type: 'done' };
         return;
@@ -501,7 +497,7 @@ export class AgentLoop {
           if (filePath) {
             // Use the file content from parameters for accurate line counting
             const fileContent = (pendingToolCall.parameters.content as string) || '';
-            this.trackFileChange(filePath, fileContent, pendingToolCall.name);
+            this.changeTracker.track(filePath, fileContent, pendingToolCall.name);
 
             // Fire onFileChange hook
             if (this.customizationLoader) {
@@ -569,7 +565,7 @@ export class AgentLoop {
     }
 
     // Max rounds exceeded
-    const maxRoundsSummary = this.buildChangesSummaryEvent();
+    const maxRoundsSummary = this.changeTracker.buildSummaryEvent();
     if (maxRoundsSummary) yield maxRoundsSummary;
     yield {
       type: 'error',
@@ -1026,7 +1022,7 @@ export class AgentLoop {
 
   /** Get file changes from the current turn (§8.4.1.1) */
   getTurnFileChanges() {
-    return this.turnFileChanges;
+    return this.changeTracker.getChanges();
   }
 
   /** Non-streaming convenience method — runs processMessage and collects results */
@@ -1057,59 +1053,6 @@ export class AgentLoop {
       }
     }
     return { content, toolCalls };
-  }
-
-  /** Track a file change after a successful write tool (§8.4.1.1) */
-  private trackFileChange(filePath: string, content: string, toolName?: string): void {
-    let added = 0;
-    let removed = 0;
-
-    if (toolName === 'write_to_file') {
-      // For write_to_file, content is the full new file — count all lines as added
-      added = content.split('\n').length;
-    } else if (toolName === 'apply_diff' || toolName === 'multi_edit') {
-      // For diffs, parse diff markers
-      const lines = content.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('+') && !line.startsWith('+++')) added++;
-        if (line.startsWith('-') && !line.startsWith('---')) removed++;
-      }
-      if (added === 0 && removed === 0) {
-        added = Math.max(1, lines.length);
-      }
-    } else {
-      // insert_content or unknown — count lines in content
-      added = content ? content.split('\n').length : 1;
-    }
-
-    const existing = this.turnFileChanges.find((f) => f.path === filePath);
-    if (existing) {
-      existing.added += added;
-      existing.removed += removed;
-    } else {
-      this.turnFileChanges.push({
-        path: filePath,
-        status: added > 0 && removed === 0 ? 'A' : 'M',
-        added,
-        removed,
-      });
-    }
-  }
-
-  /** Emit changes summary event (§8.4.1.1) */
-  private buildChangesSummaryEvent(): AgentEvent | null {
-    if (this.turnFileChanges.length === 0) return null;
-    const totalAdded = this.turnFileChanges.reduce((s, f) => s + f.added, 0);
-    const totalRemoved = this.turnFileChanges.reduce((s, f) => s + f.removed, 0);
-    return {
-      type: 'changes_summary',
-      changesSummary: {
-        filesChanged: this.turnFileChanges.length,
-        linesAdded: totalAdded,
-        linesRemoved: totalRemoved,
-        files: [...this.turnFileChanges],
-      },
-    };
   }
 
   /**
@@ -1273,7 +1216,7 @@ export class AgentLoop {
             const filePath = pendingToolCall.parameters.path as string | undefined;
             if (filePath) {
               const fileContent = (pendingToolCall.parameters.content as string) || '';
-              this.trackFileChange(filePath, fileContent, pendingToolCall.name);
+              this.changeTracker.track(filePath, fileContent, pendingToolCall.name);
             }
           }
         }
@@ -1350,7 +1293,7 @@ export class AgentLoop {
     }
 
     // Emit changes summary if any files were modified
-    const summary = this.buildChangesSummaryEvent();
+    const summary = this.changeTracker.buildSummaryEvent();
     if (summary) yield summary;
 
     yield { type: 'done' };
