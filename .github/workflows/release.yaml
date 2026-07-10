@@ -7,6 +7,7 @@ on:
 
 jobs:
   release:
+    if: ${{ vars.ENABLE_RELEASE == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -31,13 +32,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Skip release automation when NPM token is missing
-        if: ${{ secrets.NPM_TOKEN == '' }}
-        run: echo 'NPM_TOKEN is not configured; skipping changesets release automation.'
-
       - name: Create release PR or publish
         id: changesets
-        if: ${{ secrets.NPM_TOKEN != '' }}
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
