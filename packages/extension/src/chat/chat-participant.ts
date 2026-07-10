@@ -22,7 +22,7 @@ export function registerChatParticipant(
 
       // Handle slash commands
       if (command === 'plan') {
-        prompt = `Plan and execute the following task. If the task asks to write a file, use write_to_file to actually create it: ${prompt}`;
+        prompt = `Create a detailed step-by-step plan for: ${prompt}`;
       } else if (command === 'analyze') {
         prompt = `Analyze the following code or system: ${prompt}`;
       } else if (command === 'modernize') {
@@ -54,40 +54,19 @@ export function registerChatParticipant(
       try {
         stream.progress('Thinking...');
 
-        const response = await agentLoop.run(fullPrompt, {
-          stream: false,
-          mode: command === 'analyze' ? 'ask' : undefined,
-        });
+        for await (const event of agentLoop.processMessage(fullPrompt)) {
+          if (token.isCancellationRequested) return;
 
-        if (token.isCancellationRequested) return;
-
-        // Stream the response content as markdown
-        if (response.content) {
-          stream.markdown(response.content);
-        }
-
-        // Show tool calls as references and confirm file operations
-        if (response.toolCalls && response.toolCalls.length > 0) {
-          const fileOps: string[] = [];
-          for (const call of response.toolCalls) {
-            const filePath = (call.params?.path || call.params?.filePath) as string | undefined;
-            if (filePath) {
-              try {
-                const uri = vscode.Uri.file(filePath);
-                stream.reference(uri);
-              } catch {
-                // Non-critical
-              }
-              if (call.name === 'write_to_file' || call.name === 'insert_content') {
-                fileOps.push(`✅ Wrote: \`${filePath}\``);
-              } else if (call.name === 'apply_diff' || call.name === 'multi_edit') {
-                fileOps.push(`✅ Edited: \`${filePath}\``);
-              }
-            }
+          if (event.type === 'text' && event.text) {
+            stream.markdown(event.text);
           }
-          // If the model didn't produce text but did execute tools, show summary
-          if (!response.content && fileOps.length > 0) {
-            stream.markdown(fileOps.join('\n\n'));
+
+          if (event.type === 'tool_call' && event.toolCall?.name) {
+            stream.progress(`Using tool: ${event.toolCall.name}`);
+          }
+
+          if (event.type === 'error' && event.error) {
+            stream.markdown(`\n\n⚠️ Error: ${event.error}`);
           }
         }
       } catch (err: any) {

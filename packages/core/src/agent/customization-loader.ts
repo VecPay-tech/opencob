@@ -2,13 +2,7 @@ import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { CodeOwnersResolver } from './codeowners.js';
-import {
-  HooksEngine,
-  type HookContext,
-  type HookResult,
-  type HookEvent,
-  type HookDefinition,
-} from './hooks-engine.js';
+import { HooksEngine, type HookContext, type HookResult } from './hooks-engine.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

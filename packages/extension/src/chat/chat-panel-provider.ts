@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'node:path';
 import type {
   AgentLoop,
   ModeEngine,
@@ -19,15 +18,13 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private pendingStatus: { connected: boolean; provider: string; modelCount: number } | null = null;
   private toolRegistry?: ToolRegistry;
   private pendingApprovals = new Map<string, (approved: boolean) => void>();
+  private workspaceScopeFilter: Set<string> | null = null;
   private activityCallback?: (entry: {
     type: string;
     title: string;
     detail?: string;
     file?: string;
   }) => void;
-  private lastAutoOpenedPath = '';
-  private lastAutoOpenedAt = 0;
-  private lastDiagramSourcePath = '';
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -46,15 +43,6 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     callback: (entry: { type: string; title: string; detail?: string; file?: string }) => void,
   ): void {
     this.activityCallback = callback;
-  }
-
-  /** Programmatically send a message to the agent (used by scan panel fix integration) */
-  async sendMessage(text: string): Promise<void> {
-    // Focus the chat panel first
-    await vscode.commands.executeCommand('OpenCob.chatPanel.focus');
-    // Slight delay to ensure webview is ready
-    await new Promise((r) => setTimeout(r, 200));
-    await this.handleChatMessage(text);
   }
 
   /** Request tool approval via inline chat card (Copilot-style). Returns true if approved. */
@@ -120,6 +108,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           this.sendModesList();
           this.sendToolsList();
           this.sendTokenUsage();
+          this.sendWorkspaceScope();
+          this.sendHistoryList();
+          this.sendActiveConversation();
           break;
         case 'chat':
           await this.handleChatMessage(message.text);
@@ -129,22 +120,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
         case 'openFile':
           if (message.path) {
-            const folders = vscode.workspace.workspaceFolders || [];
-            let opened = false;
-            for (const folder of folders) {
-              const fileUri = vscode.Uri.joinPath(folder.uri, message.path);
-              try {
-                await vscode.workspace.fs.stat(fileUri);
-                await vscode.window.showTextDocument(fileUri, { preview: true });
-                opened = true;
-                break;
-              } catch {
-                /* file not in this folder */
-              }
-            }
-            if (!opened && folders.length > 0) {
-              // Fallback: try as absolute or relative to first folder
-              const fileUri = vscode.Uri.joinPath(folders[0].uri, message.path);
+            const fileUri = await this.resolveWorkspaceUri(message.path);
+            if (fileUri) {
               vscode.window.showTextDocument(fileUri, { preview: true });
             }
           }
@@ -184,6 +161,9 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
         case 'getTokenUsage':
           this.sendTokenUsage();
+          break;
+        case 'updateWorkspaceScopeFilter':
+          this.updateWorkspaceScopeFilter(message.folders);
           break;
         case 'exportConversation':
           this.exportConversation();
@@ -368,6 +348,47 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private sendActiveConversation(): void {
+    const conv = this.conversationManager.getActive();
+    const messages = conv.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, content: m.content }));
+    this.view?.webview.postMessage({ type: 'conversationLoaded', messages });
+  }
+
+  private async resolveWorkspaceUri(relativePath: string): Promise<vscode.Uri | undefined> {
+    const clean = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const folders = this.getScopedWorkspaceFolders();
+    if (folders.length === 0 || !clean) return undefined;
+
+    const parts = clean.split('/').filter(Boolean);
+    const first = parts[0]?.toLowerCase();
+    const matchingFolder = folders.find((f) => f.name.toLowerCase() === first);
+
+    if (matchingFolder && parts.length > 1) {
+      const nestedPath = parts.slice(1).join('/');
+      const uri = vscode.Uri.joinPath(matchingFolder.uri, nestedPath);
+      try {
+        await vscode.workspace.fs.stat(uri);
+        return uri;
+      } catch {
+        // Try fallback strategies.
+      }
+    }
+
+    for (const folder of folders) {
+      const uri = vscode.Uri.joinPath(folder.uri, clean);
+      try {
+        await vscode.workspace.fs.stat(uri);
+        return uri;
+      } catch {
+        // Try next folder.
+      }
+    }
+
+    return undefined;
+  }
+
   private switchConversation(id: string): void {
     try {
       const conv = this.conversationManager.setActive(id);
@@ -449,6 +470,47 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private sendWorkspaceScope(): void {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    this.view?.webview.postMessage({
+      type: 'workspaceScope',
+      selected:
+        this.workspaceScopeFilter === null ? [] : Array.from(this.workspaceScopeFilter.values()),
+      folders: folders.map((folder) => ({
+        name: folder.name,
+        path: folder.uri.fsPath,
+      })),
+    });
+  }
+
+  private updateWorkspaceScopeFilter(folderNames: unknown): void {
+    const existingFolderNames = new Set(
+      (vscode.workspace.workspaceFolders ?? []).map((f) => f.name),
+    );
+    if (!Array.isArray(folderNames) || folderNames.length === 0) {
+      this.workspaceScopeFilter = null;
+      this.sendWorkspaceScope();
+      return;
+    }
+
+    const names = folderNames
+      .filter((n): n is string => typeof n === 'string')
+      .map((n) => n.trim())
+      .filter((n) => Boolean(n) && existingFolderNames.has(n));
+
+    this.workspaceScopeFilter = names.length > 0 ? new Set(names) : null;
+    this.sendWorkspaceScope();
+  }
+
+  private getScopedWorkspaceFolders(): vscode.WorkspaceFolder[] {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (!this.workspaceScopeFilter || this.workspaceScopeFilter.size === 0) {
+      return folders;
+    }
+    const scoped = folders.filter((folder) => this.workspaceScopeFilter?.has(folder.name));
+    return scoped.length > 0 ? scoped : folders;
+  }
+
   private exportConversation(): void {
     try {
       const markdown = this.conversationManager.exportAsMarkdown();
@@ -470,23 +532,12 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       outputChannel.appendLine('[chat] BLOCKED — isProcessing is true, ignoring message');
       return;
     }
-
-    // Handle local-only slash commands before processing
-    const trimmedCmd = text.trim().toLowerCase();
-    if (trimmedCmd === '/setup') {
-      await this.handleSetupCommand();
-      return;
-    }
-    if (trimmedCmd === '/help' || trimmedCmd === '/help customization') {
-      this.showCustomizationHelp();
-      return;
-    }
-
     this.isProcessing = true;
 
     try {
       // Resolve #file context references
-      const processedText = await this.resolveFileReferences(text);
+      const withFileReferences = await this.resolveFileReferences(text);
+      const processedText = await this.injectWorkspaceStructureContext(withFileReferences);
 
       // Signal start of response
       outputChannel.appendLine('[chat] sending responseStart');
@@ -527,6 +578,46 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async injectWorkspaceStructureContext(text: string): Promise<string> {
+    if (!/\b(explain|describe|summari[sz]e)\b[\s\S]*\b(workspace|project)\b/i.test(text)) {
+      return text;
+    }
+    if (text.includes('[Workspace scope snapshot]:')) {
+      return text;
+    }
+
+    const folders = this.getScopedWorkspaceFolders();
+    if (folders.length === 0) return text;
+
+    const blocks: string[] = [];
+    for (const folder of folders) {
+      try {
+        const entries = await vscode.workspace.fs.readDirectory(folder.uri);
+        const display = entries
+          .filter(([name]) => !name.startsWith('.'))
+          .sort((a, b) => {
+            const aDir = (a[1] & vscode.FileType.Directory) !== 0;
+            const bDir = (b[1] & vscode.FileType.Directory) !== 0;
+            if (aDir !== bDir) return aDir ? -1 : 1;
+            return a[0].localeCompare(b[0]);
+          })
+          .slice(0, 80)
+          .map(([name, type]) => `${name}${(type & vscode.FileType.Directory) !== 0 ? '/' : ''}`);
+
+        if (display.length === 0) continue;
+
+        blocks.push(
+          `- ${folder.name} (${folder.uri.fsPath})\n${display.map((item) => `  - ${item}`).join('\n')}`,
+        );
+      } catch {
+        // Skip unreadable folder entries.
+      }
+    }
+
+    if (blocks.length === 0) return text;
+    return `${text}\n\n[Workspace scope snapshot]:\n${blocks.join('\n')}`;
+  }
+
   /** Handle auto-approve toggle from the webview toolbar (F1.1 Should) */
   private handleAutoApproveToggle(group: string, enabled: boolean): void {
     const config = vscode.workspace.getConfiguration('opencob.autoApprove');
@@ -540,267 +631,28 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     await vscode.commands.executeCommand('OpenCob.switchModelTo', model);
   }
 
-  /** /setup — scaffold .opencob/ directory with examples */
-  private async handleSetupCommand(): Promise<void> {
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders || folders.length === 0) {
-      this.view?.webview.postMessage({ type: 'responseStart' });
-      this.view?.webview.postMessage({
-        type: 'responseChunk',
-        text: 'No workspace folder open. Please open a folder first.',
-      });
-      this.view?.webview.postMessage({ type: 'responseEnd' });
-      return;
-    }
-
-    const root = folders[0].uri;
-    const opencobDir = vscode.Uri.joinPath(root, '.opencob');
-    const instructionsDir = vscode.Uri.joinPath(opencobDir, 'instructions');
-    const hooksDir = vscode.Uri.joinPath(opencobDir, 'hooks');
-
-    const enc = new TextEncoder();
-
-    // Create directories and example files
-    await vscode.workspace.fs.createDirectory(instructionsDir);
-    await vscode.workspace.fs.createDirectory(hooksDir);
-
-    // Example instruction file
-    const exampleInstruction = `---
-applyTo: "src/**/*.ts"
-description: TypeScript code conventions
-# owner: backend-team  # Uncomment to scope to CODEOWNERS owner
----
-
-## TypeScript Conventions
-
-- Use strict TypeScript (no \`any\` unless justified)
-- Prefer named exports over default exports
-- Add JSDoc for public APIs
-- Use early returns to reduce nesting
-`;
-    const instrPath = vscode.Uri.joinPath(instructionsDir, 'typescript.instructions.md');
-    try {
-      await vscode.workspace.fs.stat(instrPath);
-    } catch {
-      await vscode.workspace.fs.writeFile(instrPath, enc.encode(exampleInstruction));
-    }
-
-    // Example hook file
-    const exampleHook = `---
-event: onFileChange
-applyTo: "src/**/*.ts"
-description: Remind about tests when modifying source files
----
-
-When modifying source files, ensure corresponding test files are also updated.
-Check if a test file exists at the same path under tests/ or __tests__/.
-`;
-    const hookPath = vscode.Uri.joinPath(hooksDir, 'test-reminder.md');
-    try {
-      await vscode.workspace.fs.stat(hookPath);
-    } catch {
-      await vscode.workspace.fs.writeFile(hookPath, enc.encode(exampleHook));
-    }
-
-    // Project instructions
-    const projectInstr = `# Project Instructions
-
-These instructions are always included in the system prompt for every conversation.
-
-## General Guidelines
-
-- Follow the project's existing code style
-- Write concise, readable code
-- Add tests for new functionality
-`;
-    const projPath = vscode.Uri.joinPath(opencobDir, 'opencob-instructions.md');
-    try {
-      await vscode.workspace.fs.stat(projPath);
-    } catch {
-      await vscode.workspace.fs.writeFile(projPath, enc.encode(projectInstr));
-    }
-
-    // Send response to chat
-    this.view?.webview.postMessage({ type: 'responseStart' });
-    this.view?.webview.postMessage({
-      type: 'responseChunk',
-      text: `**✓ Created \`.opencob/\` customization scaffold:**
-
-- \`.opencob/opencob-instructions.md\` — project-wide instructions (always active)
-- \`.opencob/instructions/typescript.instructions.md\` — file-scoped instruction example
-- \`.opencob/hooks/test-reminder.md\` — lifecycle hook example
-
-**What you can customize:**
-
-| File pattern | Purpose |
-|---|---|
-| \`.opencob/instructions/*.instructions.md\` | Scoped instructions (activated by \`applyTo\` glob) |
-| \`.opencob/hooks/*.md\` | Lifecycle hooks (fire on events like \`onFileChange\`) |
-| \`.opencob/agents/*.agent.md\` | Custom agent personas with tool restrictions |
-| \`.opencob/prompts/*.prompt.md\` | Reusable prompt templates (slash commands) |
-| \`CODEOWNERS\` | Owner-scoped instructions (add \`owner:\` to instruction frontmatter) |
-
-Type \`/help\` for more details on each feature.`,
-    });
-    this.view?.webview.postMessage({ type: 'responseEnd' });
-
-    // Open the instruction file for the user
-    await vscode.window.showTextDocument(instrPath, { preview: true });
-  }
-
-  /** /help — show customization documentation in chat */
-  private showCustomizationHelp(): void {
-    this.view?.webview.postMessage({ type: 'responseStart' });
-    this.view?.webview.postMessage({
-      type: 'responseChunk',
-      text: `## OpenCob Customization Guide
-
-### Instructions (\`.opencob/instructions/*.instructions.md\`)
-
-Scoped instructions inject into the system prompt when active files match. Uses YAML frontmatter:
-
-\`\`\`yaml
----
-applyTo: "src/api/**/*.ts"     # Glob pattern for file matching
-owner: backend-team             # Optional: only applies to CODEOWNERS owner
-description: Backend API rules  # Optional description
----
-\`\`\`
-
-### Lifecycle Hooks (\`.opencob/hooks/*.md\`)
-
-Hooks fire on specific events and inject additional instructions:
-
-| Event | When it fires |
-|---|---|
-| \`onFileChange\` | After the agent modifies a file |
-| \`onFileSave\` | After a file is saved |
-| \`onChatStart\` | At the start of each conversation turn |
-| \`onToolCallBefore\` | Before any tool is executed |
-| \`onToolCallAfter\` | After any tool executes |
-| \`onModeSwitch\` | When the agent switches modes |
-| \`onPlanCreated\` | After a plan is decomposed |
-| \`onError\` | When an error occurs |
-
-Hook frontmatter:
-\`\`\`yaml
----
-event: onFileChange
-applyTo: "**/*.tsx"   # Optional file filter
----
-\`\`\`
-
-### CODEOWNERS Integration
-
-Create a \`CODEOWNERS\` file (in root, \`.github/\`, or \`.opencob/\`). Then add \`owner: team-name\` to instruction frontmatter to scope instructions to files owned by that team.
-
-### Custom Agents (\`.opencob/agents/*.agent.md\`)
-
-Define specialized agent personas with restricted tool access:
-\`\`\`yaml
----
-name: reviewer
-description: Code review specialist
-tools: [read_file, search_files, list_directory]
----
-\`\`\`
-
-### Prompt Templates (\`.opencob/prompts/*.prompt.md\`)
-
-Create reusable slash-command prompts with variables:
-\`\`\`yaml
----
-name: migration
-description: Generate migration plan
-variables:
-  - name: source_lang
-  - name: target_lang
----
-\`\`\`
-
----
-Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
-    });
-    this.view?.webview.postMessage({ type: 'responseEnd' });
-  }
-
-  /** Handle # context search — find workspace files/folders matching query across all workspace roots */
+  /** Handle # context search — find workspace files matching query */
   private async handleContextSearch(query: string): Promise<void> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
+    const workspaceFolders = this.getScopedWorkspaceFolders();
+    if (workspaceFolders.length === 0) {
       this.view?.webview.postMessage({ type: 'contextFiles', files: [] });
       return;
     }
-
-    const results: string[] = [];
-
+    const pattern = query ? `**/*${query}*` : '**/*';
     try {
-      // Search for files matching the query across all workspace folders
-      const filePattern = query ? `**/*${query}*` : '**/*';
-      const uris = await vscode.workspace.findFiles(filePattern, '**/node_modules/**', 30);
-
-      for (const uri of uris) {
-        // Find which workspace folder this file belongs to
-        const folder = vscode.workspace.getWorkspaceFolder(uri);
-        if (folder) {
-          const rel = uri.fsPath.replace(folder.uri.fsPath, '').replace(/\\/g, '/');
-          const display =
-            workspaceFolders.length > 1
-              ? `${folder.name}${rel}`
-              : rel.startsWith('/')
-                ? rel.slice(1)
-                : rel;
-          results.push(display);
-        }
-      }
-
-      // Also search for folders matching the query (findFiles only finds files)
-      if (query) {
-        // First check if any workspace folder name matches the query directly
-        for (const folder of workspaceFolders) {
-          if (folder.name.toLowerCase().includes(query.toLowerCase())) {
-            const display = `${folder.name}/`;
-            if (!results.includes(display)) {
-              results.unshift(display);
-            }
-          }
-        }
-
-        // Then search for subfolders matching the query inside each workspace folder
-        for (const folder of workspaceFolders) {
-          try {
-            // Check if a directory with this name exists by looking for files inside it
-            const dirUris = await vscode.workspace.findFiles(
-              new vscode.RelativePattern(folder, `**/${query}/**/*`),
-              '**/node_modules/**',
-              1,
-            );
-            if (dirUris.length > 0) {
-              // Extract the folder path relative to the workspace root
-              const normalizedPath = dirUris[0].fsPath.replace(/\\/g, '/');
-              const normalizedRoot = folder.uri.fsPath.replace(/\\/g, '/');
-              const relFromRoot = normalizedPath.substring(normalizedRoot.length); // e.g. /source/sc3acqlib/...
-              const queryMatch = `/${query}/`;
-              const matchIdx = relFromRoot.toLowerCase().indexOf(queryMatch.toLowerCase());
-              if (matchIdx >= 0) {
-                const relFolder = relFromRoot.substring(0, matchIdx + queryMatch.length - 1); // e.g. /source
-                const display =
-                  workspaceFolders.length > 1
-                    ? `${folder.name}${relFolder}/`
-                    : (relFolder.startsWith('/') ? relFolder.slice(1) : relFolder) + '/';
-                if (!results.includes(display)) {
-                  results.unshift(display); // Put folders first
-                }
-              }
-            }
-          } catch {
-            // Skip this folder on error
-          }
-        }
-      }
-
-      results.sort((a, b) => a.length - b.length);
-      this.view?.webview.postMessage({ type: 'contextFiles', files: results.slice(0, 20) });
+      const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 20);
+      const scopedUris = uris.filter((uri) => {
+        const filePath = uri.fsPath.replace(/\\/g, '/');
+        return workspaceFolders.some((folder) => {
+          const folderPath = folder.uri.fsPath.replace(/\\/g, '/');
+          return filePath === folderPath || filePath.startsWith(folderPath + '/');
+        });
+      });
+      const files = scopedUris.map((u) =>
+        vscode.workspace.asRelativePath(u, true).replace(/\\/g, '/'),
+      );
+      files.sort((a, b) => a.length - b.length);
+      this.view?.webview.postMessage({ type: 'contextFiles', files });
     } catch {
       this.view?.webview.postMessage({ type: 'contextFiles', files: [] });
     }
@@ -808,101 +660,38 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
 
   /** Resolve #file references in the message text — read file content and inject as context */
   private async resolveFileReferences(text: string): Promise<string> {
-    const pattern = /#([\w./\\-]+)/g;
+    const pattern = /#((?:file:)?[\w./\\-]+)/gi;
     const matches = [...text.matchAll(pattern)];
     if (matches.length === 0) return text;
 
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) return text;
+    if (!vscode.workspace.workspaceFolders?.length) return text;
 
     let contextBlock = '';
     for (const match of matches) {
-      let filePath = match[1];
-      // Strip trailing slash for folder references
-      if (filePath.endsWith('/')) filePath = filePath.slice(0, -1);
-      let found = false;
+      const rawRef = match[1] ?? '';
+      const referencePath = rawRef.replace(/^file:/i, '').replace(/\/+$|\\+$/g, '');
+      if (!referencePath) continue;
+      try {
+        const fileUri = await this.resolveWorkspaceUri(referencePath);
+        if (!fileUri) continue;
+        const stat = await vscode.workspace.fs.stat(fileUri);
 
-      // Check if the path IS a workspace folder name (e.g. "source" = workspace folder named "source")
-      for (const folder of workspaceFolders) {
-        if (folder.name.toLowerCase() === filePath.toLowerCase()) {
-          try {
-            const entries = await vscode.workspace.fs.readDirectory(folder.uri);
-            const listing = entries
-              .map(([name, type]) => (type === vscode.FileType.Directory ? `${name}/` : name))
-              .join('\n');
-            contextBlock += `\n\n--- Folder: ${folder.name} (workspace root) ---\n\`\`\`\n${listing}\n\`\`\`\n`;
-            found = true;
-            break;
-          } catch {
-            // Continue
-          }
+        if (stat.type & vscode.FileType.Directory) {
+          const tree = await this.buildDirectoryReferenceTree(fileUri, referencePath);
+          if (!tree) continue;
+          contextBlock += `\n\n--- Directory: ${referencePath} ---\n\`\`\`\n${tree}\n\`\`\`\n`;
+          continue;
         }
-      }
 
-      if (found) continue;
-
-      // Check if path is prefixed with a workspace folder name (multi-root display format)
-      for (const folder of workspaceFolders) {
-        const prefix = folder.name + '/';
-        if (filePath.startsWith(prefix)) {
-          const relPath = filePath.slice(prefix.length);
-          try {
-            const fileUri = vscode.Uri.joinPath(folder.uri, relPath);
-            const stat = await vscode.workspace.fs.stat(fileUri);
-            if (stat.type === vscode.FileType.Directory) {
-              const entries = await vscode.workspace.fs.readDirectory(fileUri);
-              const listing = entries
-                .map(([name, type]) => (type === vscode.FileType.Directory ? `${name}/` : name))
-                .join('\n');
-              contextBlock += `\n\n--- Folder: ${filePath} ---\n\`\`\`\n${listing}\n\`\`\`\n`;
-            } else {
-              const content = await vscode.workspace.fs.readFile(fileUri);
-              const textContent = new TextDecoder('utf-8').decode(content);
-              const truncated =
-                textContent.length > 8000
-                  ? textContent.slice(0, 8000) + '\n... (truncated)'
-                  : textContent;
-              contextBlock += `\n\n--- File: ${filePath} ---\n\`\`\`\n${truncated}\n\`\`\`\n`;
-            }
-            found = true;
-            break;
-          } catch {
-            // Not found with prefix strip, continue
-          }
-        }
-      }
-
-      if (found) continue;
-
-      // Then try each workspace folder directly
-      for (const folder of workspaceFolders) {
-        try {
-          const fileUri = vscode.Uri.joinPath(folder.uri, filePath);
-          const stat = await vscode.workspace.fs.stat(fileUri);
-          if (stat.type === vscode.FileType.Directory) {
-            // For directories, list top-level contents
-            const entries = await vscode.workspace.fs.readDirectory(fileUri);
-            const listing = entries
-              .map(([name, type]) => (type === vscode.FileType.Directory ? `${name}/` : name))
-              .join('\n');
-            contextBlock += `\n\n--- Folder: ${filePath} (in ${folder.name}) ---\n\`\`\`\n${listing}\n\`\`\`\n`;
-          } else {
-            const content = await vscode.workspace.fs.readFile(fileUri);
-            const textContent = new TextDecoder('utf-8').decode(content);
-            const truncated =
-              textContent.length > 8000
-                ? textContent.slice(0, 8000) + '\n... (truncated)'
-                : textContent;
-            contextBlock += `\n\n--- File: ${filePath} (in ${folder.name}) ---\n\`\`\`\n${truncated}\n\`\`\`\n`;
-          }
-          found = true;
-          break;
-        } catch {
-          // Not found in this folder, try next
-        }
-      }
-      if (!found) {
-        // File not found in any workspace folder — leave as-is
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const textContent = new TextDecoder('utf-8').decode(content);
+        const truncated =
+          textContent.length > 8000
+            ? textContent.slice(0, 8000) + '\n... (truncated)'
+            : textContent;
+        contextBlock += `\n\n--- File: ${referencePath} ---\n\`\`\`\n${truncated}\n\`\`\`\n`;
+      } catch {
+        // Unresolvable reference — leave as-is
       }
     }
 
@@ -912,34 +701,56 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     return text;
   }
 
-  /** Handle enhance prompt request — rewrite user's draft into a clearer, more effective prompt */
-  private async handleEnhancePrompt(text: string): Promise<void> {
-    try {
-      // Use VS Code's Language Model API for quick prompt enhancement
-      const models = await vscode.lm.selectChatModels({ family: 'gpt-4o' });
-      const model = models[0] ?? (await vscode.lm.selectChatModels())[0];
-      if (!model) {
-        // No model available — return original
-        this.view?.webview.postMessage({ type: 'enhancedPrompt', text });
+  private async buildDirectoryReferenceTree(
+    rootUri: vscode.Uri,
+    displayPath: string,
+  ): Promise<string | undefined> {
+    const maxEntries = 80;
+    const maxDepth = 2;
+    const lines: string[] = [];
+
+    const walk = async (uri: vscode.Uri, depth: number, indent: string): Promise<void> => {
+      if (depth > maxDepth || lines.length >= maxEntries) return;
+      let entries: [string, vscode.FileType][] = [];
+      try {
+        entries = await vscode.workspace.fs.readDirectory(uri);
+      } catch {
         return;
       }
-      const messages = [
-        vscode.LanguageModelChatMessage.User(
-          `You are a prompt engineer. Rewrite the following user prompt to be clearer, more specific, and more effective for an AI coding assistant. Keep the same intent but improve clarity and add useful context hints. Return ONLY the improved prompt text, nothing else.\n\nOriginal prompt:\n${text}`,
-        ),
-      ];
-      const response = await model.sendRequest(
-        messages,
-        {},
-        new vscode.CancellationTokenSource().token,
-      );
-      let enhanced = '';
-      for await (const chunk of response.text) {
-        enhanced += chunk;
+
+      entries.sort((a, b) => {
+        const aDir = (a[1] & vscode.FileType.Directory) !== 0;
+        const bDir = (b[1] & vscode.FileType.Directory) !== 0;
+        if (aDir !== bDir) return aDir ? -1 : 1;
+        return a[0].localeCompare(b[0]);
+      });
+
+      for (const [name, type] of entries) {
+        if (lines.length >= maxEntries) break;
+        const isDir = (type & vscode.FileType.Directory) !== 0;
+        lines.push(`${indent}${name}${isDir ? '/' : ''}`);
+        if (isDir) {
+          await walk(vscode.Uri.joinPath(uri, name), depth + 1, `${indent}  `);
+        }
       }
+    };
+
+    await walk(rootUri, 0, '');
+    if (lines.length === 0) return undefined;
+    const suffix = lines.length >= maxEntries ? '\n... (truncated)' : '';
+    return `${displayPath}/\n${lines.join('\n')}${suffix}`;
+  }
+
+  /** Handle enhance prompt request from the webview (F1.1 Should) */
+  private async handleEnhancePrompt(text: string): Promise<void> {
+    try {
+      // Use the PromptEnhancer from the agent loop if available
+      const enhanced = await (
+        this.agentLoop as unknown as { enhancePrompt?: (input: string) => Promise<string> }
+      ).enhancePrompt?.(text);
       this.view?.webview.postMessage({
         type: 'enhancedPrompt',
-        text: enhanced.trim() || text,
+        text: enhanced ?? text,
       });
     } catch {
       // On failure, return original text
@@ -951,7 +762,7 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
   }
 
   private handleAgentEvent(event: AgentEvent): void {
-    switch (event.type as string) {
+    switch (event.type) {
       case 'text':
         this.view?.webview.postMessage({
           type: 'responseChunk',
@@ -965,17 +776,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           toolName: event.toolCall?.name,
           parameters: event.toolCall?.parameters,
         });
-        {
-          const toolName = event.toolCall?.name ?? '';
-          if (toolName === 'generate_diagram') {
-            const p = event.toolCall?.parameters?.path;
-            this.lastDiagramSourcePath = typeof p === 'string' ? p : '';
-          }
-          const paths = this.extractEditedPaths(toolName, event.toolCall?.parameters);
-          for (const p of paths) {
-            void this.autoRevealEditedFile(p);
-          }
-        }
         this.activityCallback?.({
           type: 'tool_call',
           title: `Tool: ${event.toolCall?.name}`,
@@ -990,14 +790,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           success: event.toolResult?.success,
           content: event.toolResult?.content,
         });
-        if (
-          event.toolResult?.toolName === 'generate_diagram' &&
-          event.toolResult.success &&
-          typeof event.toolResult.content === 'string' &&
-          event.toolResult.content.trim().length > 0
-        ) {
-          void this.openDiagramOutput(event.toolResult.content, this.lastDiagramSourcePath);
-        }
         break;
 
       case 'mode_switch':
@@ -1017,27 +809,16 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
 
       case 'self_correction':
         this.view?.webview.postMessage({
-          type: 'thinking',
-          text: event.text ?? 'Self-correcting',
+          type: 'responseChunk',
+          text: `\n🔄 *${event.text}*\n`,
         });
         break;
 
       case 'compaction':
         this.view?.webview.postMessage({
-          type: 'thinking',
-          text: event.text ?? 'Conversation compacted to fit context window',
+          type: 'responseChunk',
+          text: `\n📦 *${event.text}*\n`,
         });
-        break;
-
-      case 'file_change':
-        // Show inline diff preview card for proposed file changes
-        if ((event as any).file && (event as any).diff) {
-          this.view?.webview.postMessage({
-            type: 'diffPreview',
-            file: (event as any).file,
-            diff: (event as any).diff,
-          });
-        }
         break;
 
       case 'phase_change':
@@ -1100,107 +881,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     }
   }
 
-  private extractEditedPaths(
-    toolName: string,
-    params: Record<string, unknown> | undefined,
-  ): string[] {
-    if (!params) return [];
-
-    const writeTools = new Set(['write_to_file', 'apply_diff', 'insert_content', 'multi_edit']);
-    if (!writeTools.has(toolName)) return [];
-
-    const out: string[] = [];
-    const directPath = params.path;
-    if (typeof directPath === 'string' && directPath.trim()) {
-      out.push(directPath.trim());
-    }
-
-    const edits = params.edits;
-    if (Array.isArray(edits)) {
-      for (const e of edits) {
-        const p = (e as { path?: unknown }).path;
-        if (typeof p === 'string' && p.trim()) {
-          out.push(p.trim());
-        }
-      }
-    }
-
-    return [...new Set(out)];
-  }
-
-  private async autoRevealEditedFile(filePath: string): Promise<void> {
-    const now = Date.now();
-    if (this.lastAutoOpenedPath === filePath && now - this.lastAutoOpenedAt < 800) {
-      return;
-    }
-    this.lastAutoOpenedPath = filePath;
-    this.lastAutoOpenedAt = now;
-
-    const uri = await this.resolveFileUri(filePath);
-    if (!uri) return;
-    await vscode.window.showTextDocument(uri, {
-      viewColumn: vscode.ViewColumn.One,
-      preview: true,
-      preserveFocus: true,
-    });
-  }
-
-  private async resolveFileUri(filePath: string): Promise<vscode.Uri | null> {
-    const normalized = filePath.trim();
-    if (!normalized) return null;
-
-    // Absolute path
-    if (path.isAbsolute(normalized)) {
-      const absUri = vscode.Uri.file(normalized);
-      try {
-        await vscode.workspace.fs.stat(absUri);
-        return absUri;
-      } catch {
-        return null;
-      }
-    }
-
-    // Relative to workspace folders
-    const folders = vscode.workspace.workspaceFolders || [];
-    for (const folder of folders) {
-      const uri = vscode.Uri.joinPath(folder.uri, normalized);
-      try {
-        await vscode.workspace.fs.stat(uri);
-        return uri;
-      } catch {
-        // continue
-      }
-    }
-
-    return null;
-  }
-
-  private async openDiagramOutput(content: string, sourcePath?: string): Promise<void> {
-    await vscode.commands.executeCommand('workbench.action.editorLayoutTwoColumns');
-
-    if (sourcePath) {
-      const sourceUri = await this.resolveFileUri(sourcePath);
-      if (sourceUri) {
-        await vscode.window.showTextDocument(sourceUri, {
-          viewColumn: vscode.ViewColumn.One,
-          preview: false,
-          preserveFocus: true,
-        });
-      }
-    }
-
-    // Use virtual read-only document so closing won't prompt to save
-    const { createDiagramUri } = await import('../diagram-store.js');
-    const diagramUri = createDiagramUri(content);
-    const doc = await vscode.workspace.openTextDocument(diagramUri);
-    await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.Two,
-      preview: true,
-      preserveFocus: false,
-    });
-    await vscode.commands.executeCommand('markdown.showPreview', diagramUri);
-  }
-
   private getHtml(): string {
     const modelOptions =
       this.pendingModels.length > 0
@@ -1250,6 +930,65 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     }
     .header-brand svg { opacity: 0.7; }
     .header-spacer { flex: 1; }
+    .workspace-scope-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-left: 8px;
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 999px;
+      padding: 1px 7px;
+      max-width: 220px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .workspace-scope-menu {
+      position: absolute;
+      top: 42px;
+      left: 20px;
+      min-width: 260px;
+      max-width: 320px;
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      background: var(--vscode-editorWidget-background);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+      z-index: 70;
+      padding: 8px;
+    }
+    .workspace-scope-menu.hidden { display: none; }
+    .scope-menu-title {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--vscode-foreground);
+    }
+    .scope-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--vscode-foreground);
+      margin-bottom: 4px;
+    }
+    .scope-menu-actions {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+      gap: 6px;
+    }
+    .scope-menu-btn {
+      border: 1px solid var(--vscode-panel-border);
+      background: var(--vscode-sideBar-background);
+      color: var(--vscode-foreground);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-size: 11px;
+      cursor: pointer;
+    }
     .header-btn {
       background: none; border: none; padding: 4px; border-radius: 4px;
       color: var(--vscode-descriptionForeground); cursor: pointer;
@@ -1455,21 +1194,18 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     .msg-action-btn:hover { background: var(--vscode-toolbar-hoverBackground); color: var(--vscode-foreground); }
     .msg-action-btn.active { color: var(--vscode-terminal-ansiGreen, #4ec970); }
 
-    /* Feedback / response actions */
+    /* Feedback */
     .msg-feedback {
-      display: flex; align-items: center; gap: 2px;
+      display: flex; align-items: center; gap: 4px;
       padding: 4px 0 0 26px;
     }
     .feedback-btn {
-      background: none; border: none; padding: 3px 5px;
+      background: none; border: none; padding: 2px 4px;
       border-radius: 3px; cursor: pointer;
-      color: var(--vscode-descriptionForeground);
-      display: flex; align-items: center; justify-content: center;
+      color: var(--vscode-descriptionForeground); font-size: 13px;
     }
     .feedback-btn:hover { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground); }
     .feedback-btn.voted { color: var(--vscode-terminal-ansiGreen, #4ec970); }
-    .feedback-btn.copied { color: var(--vscode-terminal-ansiGreen, #4ec970); }
-    .feedback-separator { width: 1px; height: 14px; background: var(--vscode-panel-border); margin: 0 3px; }
 
     /* Scroll-to-bottom FAB */
     .scroll-fab {
@@ -1598,217 +1334,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       40% { transform: scale(1); opacity: 1; }
     }
 
-    /* Loading border pulse on active response */
-    .msg-assistant.loading {
-      border-left: 2px solid var(--vscode-focusBorder, #007fd4);
-      animation: border-pulse 2s ease-in-out infinite;
-    }
-    @keyframes border-pulse {
-      0%, 100% { border-left-color: var(--vscode-focusBorder, #007fd4); }
-      50% { border-left-color: transparent; }
-    }
-
-    /* Thinking/reasoning collapsible block (Copilot-style) */
-    .thinking-block {
-      margin: 4px 0 8px 0;
-      border-radius: 4px;
-      background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.1));
-      border: 1px solid var(--vscode-panel-border);
-      overflow: hidden;
-      font-size: 12px;
-    }
-    .thinking-header {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 10px;
-      cursor: pointer;
-      color: var(--vscode-descriptionForeground);
-      user-select: none;
-    }
-    .thinking-header:hover { background: var(--vscode-list-hoverBackground); }
-    .thinking-header .thinking-icon {
-      display: inline-flex; align-items: center;
-    }
-    .thinking-header .thinking-icon.spinning svg {
-      animation: spin 1.5s linear infinite;
-    }
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .thinking-header .thinking-label { font-weight: 500; flex: 1; }
-    .thinking-header .thinking-chevron {
-      transition: transform 0.2s;
-      display: inline-flex;
-    }
-    .thinking-block.collapsed .thinking-chevron { transform: rotate(-90deg); }
-    .thinking-block.collapsed .thinking-body { display: none; }
-    .thinking-body {
-      padding: 4px 10px 8px 10px;
-      color: var(--vscode-descriptionForeground);
-      white-space: pre-wrap;
-      max-height: 200px;
-      overflow-y: auto;
-      line-height: 1.5;
-    }
-    .thinking-body .thinking-step {
-      display: flex; align-items: flex-start; gap: 6px;
-      padding: 2px 0;
-    }
-    .thinking-body .thinking-step::before {
-      content: '\\25CB';
-      color: var(--vscode-descriptionForeground);
-      flex-shrink: 0;
-      margin-top: 1px;
-    }
-    .thinking-body .thinking-step.done::before {
-      content: '\\2713';
-      color: var(--vscode-terminal-ansiGreen, #4ec970);
-    }
-    .thinking-body .thinking-step.error::before {
-      content: '\\2717';
-      color: var(--vscode-terminal-ansiRed, #f44747);
-    }
-    .thinking-body .thinking-step.detail {
-      opacity: 0.7;
-      font-size: 11px;
-      padding-left: 20px;
-    }
-    .thinking-body .thinking-step.detail::before {
-      content: '\\2022';
-      color: var(--vscode-descriptionForeground, #888);
-    }
-
-    /* Plan card */
-    .plan-card {
-      margin: 8px 0 8px 26px;
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      background: var(--vscode-editor-background);
-    }
-    .plan-card .plan-header {
-      display: flex; align-items: center; gap: 6px;
-      padding: 8px 12px;
-      background: var(--vscode-sideBarSectionHeader-background, var(--vscode-editor-background));
-      border-bottom: 1px solid var(--vscode-panel-border);
-      font-weight: 600; font-size: 12px;
-    }
-    .plan-card .plan-header svg {
-      width: 14px; height: 14px; flex-shrink: 0;
-    }
-    .plan-card .plan-goal {
-      padding: 6px 12px;
-      font-size: 12px; opacity: 0.8;
-      border-bottom: 1px solid var(--vscode-panel-border);
-    }
-    .plan-card .plan-steps {
-      list-style: none; margin: 0; padding: 0;
-    }
-    .plan-card .plan-step {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 12px;
-      font-size: 12px;
-      border-bottom: 1px solid var(--vscode-panel-border);
-      transition: background 0.15s;
-    }
-    .plan-card .plan-step:last-child { border-bottom: none; }
-    .plan-card .plan-step.running {
-      background: color-mix(in srgb, var(--vscode-textLink-foreground) 8%, transparent);
-    }
-    .plan-card .plan-step.done {
-      opacity: 0.85;
-    }
-    .plan-card .plan-step.failed {
-      opacity: 0.7;
-    }
-    .plan-card .plan-step-icon {
-      width: 16px; height: 16px; flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px;
-    }
-    .plan-card .plan-step.pending .plan-step-icon::after { content: '\\25CB'; color: var(--vscode-descriptionForeground); }
-    .plan-card .plan-step.running .plan-step-icon::after { content: '\\25CF'; color: var(--vscode-textLink-foreground); animation: pulse 1s infinite; }
-    .plan-card .plan-step.done .plan-step-icon::after { content: '\\2713'; color: var(--vscode-terminal-ansiGreen, #4ec970); }
-    .plan-card .plan-step.failed .plan-step-icon::after { content: '\\2717'; color: var(--vscode-terminal-ansiRed, #f44747); }
-    .plan-card .plan-step-label { flex: 1; }
-    .plan-card .plan-step-mode {
-      font-size: 10px; padding: 1px 5px; border-radius: 3px;
-      background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
-      text-transform: capitalize;
-    }
-    .plan-card .plan-step-toggle {
-      width: 14px; height: 14px; flex-shrink: 0; cursor: pointer;
-      opacity: 0.6; transition: transform 0.15s;
-    }
-    .plan-card .plan-step-toggle.expanded { transform: rotate(180deg); }
-    .plan-card .plan-step-content {
-      display: none;
-      padding: 8px 12px 8px 36px;
-      font-size: 12px;
-      border-top: 1px dashed var(--vscode-panel-border);
-      background: var(--vscode-editor-background);
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    .plan-card .plan-step-content.visible { display: block; }
-    .plan-card .plan-step-content p { margin: 4px 0; }
-    .plan-card .plan-step-content ul, .plan-card .plan-step-content ol { margin: 4px 0; padding-left: 18px; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-    /* Plan step headers (separators between subtask outputs) */
-    .plan-step-header {
-      display: none;
-    }
-
-    /* Changes summary card */
-    .changes-card {
-      margin: 10px 0 4px 0;
-      border: 1px solid var(--vscode-panel-border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      font-size: 12px;
-    }
-    .changes-header {
-      display: flex; align-items: center; gap: 6px;
-      padding: 7px 12px;
-      cursor: pointer;
-      background: var(--vscode-sideBarSectionHeader-background, var(--vscode-editor-background));
-      user-select: none;
-    }
-    .changes-header svg { flex-shrink: 0; }
-    .changes-stats { margin-left: auto; font-size: 11px; }
-    .changes-added { color: var(--vscode-terminal-ansiGreen, #4ec970); }
-    .changes-removed { color: var(--vscode-terminal-ansiRed, #f44747); }
-    .changes-chevron {
-      margin-left: 4px; transition: transform 0.15s;
-    }
-    .changes-card.expanded .changes-chevron { transform: rotate(180deg); }
-    .changes-body {
-      display: none;
-      border-top: 1px solid var(--vscode-panel-border);
-    }
-    .changes-card.expanded .changes-body { display: block; }
-    .changes-file {
-      display: flex; align-items: center; gap: 8px;
-      padding: 4px 12px;
-      border-bottom: 1px solid var(--vscode-panel-border);
-    }
-    .changes-file:last-child { border-bottom: none; }
-    .changes-file-status {
-      width: 14px; text-align: center; font-weight: bold; font-size: 11px;
-    }
-    .changes-file-status.added { color: var(--vscode-terminal-ansiGreen, #4ec970); }
-    .changes-file-status.removed { color: var(--vscode-terminal-ansiRed, #f44747); }
-    .changes-file-status.modified { color: var(--vscode-terminal-ansiYellow, #e5c07b); }
-    .changes-file-name {
-      flex: 1;
-      cursor: pointer;
-      color: var(--vscode-textLink-foreground);
-      text-decoration: none;
-    }
-    .changes-file-name:hover { text-decoration: underline; }
-    .changes-file-stats { font-size: 11px; white-space: nowrap; }
-
     /* Agent badge */
     .agent-badge {
       font-size: 10px; padding: 1px 6px; border-radius: 3px;
@@ -1924,23 +1449,10 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     .approval-card-risk.medium { background: rgba(204,167,0,0.15); color: var(--vscode-editorWarning-foreground, #cca700); }
     .approval-card-risk.high { background: rgba(241,76,76,0.15); color: var(--vscode-terminal-ansiRed, #f14c4c); }
     .approval-card-body {
-      padding: 0; font-size: 11px;
+      padding: 8px 12px; font-size: 11px;
       font-family: var(--vscode-editor-font-family);
       background: var(--vscode-editor-background);
-    }
-    .approval-card-toggle {
-      padding: 6px 12px;
-      cursor: pointer; font-size: 11px;
-      color: var(--vscode-textLink-foreground);
-      user-select: none;
-    }
-    .approval-card-toggle:hover { text-decoration: underline; }
-    .approval-card-pre {
-      margin: 0; padding: 8px 12px;
-      max-height: 200px; overflow-y: auto;
-      white-space: pre-wrap; word-break: break-word;
-      border-top: 1px solid var(--vscode-panel-border);
-      font-size: 11px;
+      max-height: 120px; overflow-y: auto; white-space: pre-wrap;
     }
     .approval-card-actions {
       display: flex; gap: 6px; padding: 8px 12px;
@@ -2469,6 +1981,7 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       <div class="header-brand">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         <span>OpenCob</span>
+        <span class="workspace-scope-pill" id="workspace-scope" title="Workspace scope">scope: loading...</span>
       </div>
       <div class="header-spacer"></div>
       <span class="turns-badge" id="turns-badge" title="Conversation turns">0 turns</span>
@@ -2483,6 +1996,8 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </div>
+
+    <div class="workspace-scope-menu hidden" id="workspace-scope-menu"></div>
 
     <!-- History Panel (hidden by default) -->
     <div id="history-panel" class="history-panel hidden">
@@ -2576,10 +2091,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           <button class="welcome-action" data-prompt="Help me refactor the selected code for better readability">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             <span>Refactor code</span>
-          </button>
-          <button class="welcome-action" data-prompt="/setup">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
-            <span>Customize OpenCob</span>
           </button>
         </div>
       </div>
@@ -2718,6 +2229,8 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     const historyBtn = document.getElementById('history-btn');
     const historyPanel = document.getElementById('history-panel');
     const historyClose = document.getElementById('history-close');
+    const workspaceScopePill = document.getElementById('workspace-scope');
+    const workspaceScopeMenu = document.getElementById('workspace-scope-menu');
     const historyList = document.getElementById('history-list');
     const attachBtn = document.getElementById('attach-btn');
     const modePill = document.getElementById('mode-pill');
@@ -2767,15 +2280,14 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       { cmd: '/refactor', desc: 'Refactor code for readability' },
       { cmd: '/fix', desc: 'Fix issues in the current code' },
       { cmd: '/test', desc: 'Generate unit tests' },
-      { cmd: '/diagram', desc: 'Generate a relevant diagram from current code/context' },
-      { cmd: '/plan', desc: 'Plan and execute a complex task step by step' },
+      { cmd: '/plan', desc: 'Create an implementation plan' },
       { cmd: '/scan', desc: 'Scan project for issues' },
-      { cmd: '/setup', desc: 'Scaffold .opencob/ customization directory' },
-      { cmd: '/help', desc: 'Show customization guide (instructions, hooks, agents)' },
       { cmd: '/clear', desc: 'Clear conversation' },
     ];
     let slashSelectedIdx = 0;
     let allConversations = [];
+    let workspaceScope = [];
+    let workspaceScopeSelected = [];
 
     // ── Context Chips ──
     function addChip(file) {
@@ -2965,58 +2477,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       const el = document.createElement('span');
       el.textContent = text;
       return el.innerHTML;
-    }
-
-    // Format phase label for display
-    function formatPhaseLabel(phase) {
-      var labels = {
-        'preparing': 'Preparing',
-        'gathering_context': 'Gathering context',
-        'reasoning': 'Reasoning',
-        'analysing': 'Analysing tool call',
-        'processing': 'Executing',
-        'evaluating': 'Evaluating result'
-      };
-      return labels[phase] || phase || 'Processing';
-    }
-
-    // Format tool step for display in thinking block
-    function formatToolStep(toolName, params) {
-      if (!toolName) return 'Running tool';
-      var p = params || {};
-      switch (toolName) {
-        case 'read_file':
-        case 'read-file':
-          return 'Reading ' + (p.path || p.file || 'file');
-        case 'write_file':
-        case 'write-file':
-          return 'Writing ' + (p.path || p.file || 'file');
-        case 'list_files':
-        case 'list-files':
-        case 'list_dir':
-          return 'Listing ' + (p.path || p.directory || 'directory');
-        case 'search_files':
-        case 'search-files':
-        case 'grep':
-          return 'Searching for "' + (p.pattern || p.query || '').substring(0, 40) + '"' + (p.path ? ' in ' + p.path : '');
-        case 'apply_diff':
-        case 'apply-diff':
-        case 'edit_file':
-          return 'Editing ' + (p.path || p.file || 'file');
-        case 'run_command':
-        case 'run-command':
-        case 'execute':
-          return 'Running: ' + (p.command || '').substring(0, 50);
-        default:
-          // Generic: show tool name + first string param
-          var detail = '';
-          for (var key in p) {
-            if (typeof p[key] === 'string' && p[key].length < 60) {
-              detail = p[key]; break;
-            }
-          }
-          return toolName.replace(/[-_]/g, ' ') + (detail ? ': ' + detail.substring(0, 50) : '');
-      }
     }
 
     // ── Welcome actions ──
@@ -3237,7 +2697,7 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       };
       var defaultIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>';
       agentModes = modes.map(function(m) {
-        var cleanName = m.name.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]+ */u, '');
+        var cleanName = m.name.replace(/^[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]+/u, '').trimStart();
         return { slug: m.slug, name: cleanName, icon: lucideIcons[m.slug] || defaultIcon };
       });
       // Sync dropdown to current activeMode (already set by modeChanged)
@@ -3278,12 +2738,23 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
 
     function renderSessionCard() {
       var usagePct = Math.max(0, Math.min(100, Math.round((lastUsage.used / Math.max(lastUsage.max, 1)) * 100)));
+      var selectedCount = workspaceScopeSelected.length > 0 ? workspaceScopeSelected.length : workspaceScope.length;
+      var scopeHtml = workspaceScope.length
+        ? '<div class="list-item">' +
+            '<div class="list-title"><span>Workspace Scope</span><span class="badge">' + selectedCount + '/' + workspaceScope.length + '</span></div>' +
+            workspaceScope.map(function(f) {
+              var active = workspaceScopeSelected.length === 0 || workspaceScopeSelected.includes(f.name);
+              return '<div class="muted" title="' + escapeHtml(f.path) + '">' + (active ? '\u2022 ' : '\u25CB ') + escapeHtml(f.name) + '</div>';
+            }).join('') +
+          '</div>'
+        : '<div class="list-item"><div class="list-title"><span>Workspace Scope</span></div><div class="muted">No workspace folders detected.</div></div>';
       drawerSession.innerHTML =
         '<div class="list-item">' +
           '<div class="list-title"><span>Context Window</span><span class="badge">' + usagePct + '%</span></div>' +
           '<div class="muted">Estimated tokens: ' + lastUsage.used + ' / ' + lastUsage.max + '</div>' +
           '<div class="muted">Messages: ' + lastUsage.messageCount + '</div>' +
         '</div>' +
+        scopeHtml +
         '<div class="list-item">' +
           '<div class="list-title"><span>Actions</span></div>' +
           '<button class="utility-btn" id="export-session-btn">Export Active Chat</button>' +
@@ -3295,6 +2766,91 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
         });
       }
     }
+
+    function renderWorkspaceScopePill() {
+      var pill = document.getElementById('workspace-scope');
+      if (!pill) return;
+      if (!workspaceScope.length) {
+        pill.textContent = 'scope: none';
+        pill.title = 'No workspace folders detected';
+        return;
+      }
+      var selected = workspaceScopeSelected.length > 0
+        ? workspaceScope.filter(function(f) { return workspaceScopeSelected.includes(f.name); })
+        : workspaceScope;
+      var names = selected.map(function(f) { return f.name; });
+      pill.textContent = 'scope: ' + names.join(', ');
+      pill.title = workspaceScope.map(function(f) {
+        var active = workspaceScopeSelected.length === 0 || workspaceScopeSelected.includes(f.name);
+        return (active ? '[x] ' : '[ ] ') + f.name + ' — ' + f.path;
+      }).join('\n');
+    }
+
+    function renderWorkspaceScopeMenu() {
+      if (!workspaceScopeMenu) return;
+      if (!workspaceScope.length) {
+        workspaceScopeMenu.innerHTML = '<div class="scope-menu-title">Workspace Scope</div><div class="muted">No folders available.</div>';
+        return;
+      }
+
+      var rows = workspaceScope.map(function(f, idx) {
+        var checked = workspaceScopeSelected.length === 0 || workspaceScopeSelected.includes(f.name);
+        return '<label class="scope-menu-item" title="' + escapeHtml(f.path) + '">' +
+          '<input type="checkbox" class="scope-menu-cb" data-idx="' + idx + '" ' + (checked ? 'checked' : '') + ' />' +
+          '<span>' + escapeHtml(f.name) + '</span>' +
+          '</label>';
+      }).join('');
+
+      workspaceScopeMenu.innerHTML =
+        '<div class="scope-menu-title">Select folders for chat context</div>' +
+        rows +
+        '<div class="scope-menu-actions">' +
+          '<button class="scope-menu-btn" id="scope-all-btn">All</button>' +
+          '<button class="scope-menu-btn" id="scope-apply-btn">Apply</button>' +
+        '</div>';
+
+      var allBtn = document.getElementById('scope-all-btn');
+      if (allBtn) {
+        allBtn.addEventListener('click', function() {
+          workspaceScopeSelected = [];
+          vscode.postMessage({ type: 'updateWorkspaceScopeFilter', folders: [] });
+          workspaceScopeMenu.classList.add('hidden');
+        });
+      }
+
+      var applyBtn = document.getElementById('scope-apply-btn');
+      if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+          var selectedNames = [];
+          workspaceScopeMenu.querySelectorAll('.scope-menu-cb').forEach(function(cb) {
+            if (cb.checked) {
+              var idx = Number(cb.dataset.idx || -1);
+              if (idx >= 0 && workspaceScope[idx]) selectedNames.push(workspaceScope[idx].name);
+            }
+          });
+          workspaceScopeSelected = selectedNames.length === workspaceScope.length ? [] : selectedNames;
+          vscode.postMessage({ type: 'updateWorkspaceScopeFilter', folders: workspaceScopeSelected });
+          workspaceScopeMenu.classList.add('hidden');
+        });
+      }
+    }
+
+    if (workspaceScopePill) {
+      workspaceScopePill.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        renderWorkspaceScopeMenu();
+        workspaceScopeMenu.classList.toggle('hidden');
+      });
+    }
+
+    document.addEventListener('click', function(e) {
+      if (!workspaceScopeMenu || !workspaceScopePill) return;
+      if (workspaceScopeMenu.classList.contains('hidden')) return;
+      if (!workspaceScopeMenu.contains(e.target) && !workspaceScopePill.contains(e.target)) {
+        workspaceScopeMenu.classList.add('hidden');
+      }
+    });
 
     // ── Agent/Mode dropdown (Copilot-style) ──
     var agentDropdown = document.getElementById('agent-dropdown');
@@ -3475,37 +3031,14 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
         }
         if (e.key === 'Escape') { slashPopup.style.display = 'none'; e.preventDefault(); return; }
       }
-      // # context popup navigation
-      if (contextPopup.style.display !== 'none') {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          contextSelectedIdx = Math.min(contextSelectedIdx + 1, contextFiles.length - 1);
-          updateContextSelection();
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          contextSelectedIdx = Math.max(contextSelectedIdx - 1, 0);
-          updateContextSelection();
-          return;
-        }
-        if (e.key === 'Tab' || (e.key === 'Enter' && contextFiles.length > 0)) {
-          e.preventDefault();
-          pickContext(contextSelectedIdx);
-          return;
-        }
-        if (e.key === 'Escape') {
-          contextPopup.style.display = 'none';
-          e.preventDefault();
-          return;
-        }
-      }
-      // Send on Enter (only when no popup is active)
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && contextPopup.style.display !== 'none') {
         contextPopup.style.display = 'none';
-        slashPopup.style.display = 'none';
+        e.preventDefault();
+      }
+      if (e.key === 'Escape' && atPopup.style.display !== 'none') {
         atPopup.style.display = 'none';
+        e.preventDefault();
       }
     });
     input.addEventListener('input', function() {
@@ -3517,41 +3050,23 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       updateInputCounter();
     });
 
-    var editingMsgEl = null; // Track if we're editing a previous message
-
     function send() {
       var text = input.value.trim();
       if (!text) return;
       hideWelcome();
-      // Hide all popups on send
-      contextPopup.style.display = 'none';
-      slashPopup.style.display = 'none';
-      atPopup.style.display = 'none';
-
-      // If editing a previous message, remove old user msg + all response elements after it
-      if (editingMsgEl) {
-        var nextEl = editingMsgEl.nextElementSibling;
-        // Remove everything after the edited message until the next user message
-        while (nextEl && !nextEl.classList.contains('msg-user')) {
-          var toRemove = nextEl;
-          nextEl = nextEl.nextElementSibling;
-          toRemove.remove();
-        }
-        // Remove the old user message itself
-        editingMsgEl.remove();
-        editingMsgEl = null;
-      }
-
-      addMessage('user', text);
-      vscode.postMessage({ type: 'chat', text: text });
+      // Prepend context chips as # references if not already in text
+      var extraContext = '';
+      contextAttachments.forEach(function(f) {
+        if (text.indexOf('#' + f) === -1) { extraContext += '#' + f + ' '; }
+      });
+      var fullText = extraContext ? extraContext + text : text;
+      addMessage('user', fullText);
+      vscode.postMessage({ type: 'chat', text: fullText });
       input.value = '';
       input.style.height = 'auto';
       sendBtn.disabled = true;
       stopBtn.classList.add('visible');
       contextAttachments = [];
-      contextFiles = [];
-      contextQuery = '';
-      contextStartIdx = -1;
       renderChips();
       updateInputCounter();
       updateTurns();
@@ -3572,22 +3087,16 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       var hashIdx = before.lastIndexOf('#');
       if (hashIdx === -1 || (hashIdx > 0 && before[hashIdx - 1] !== ' ' && before[hashIdx - 1] !== '\\n')) {
         contextPopup.style.display = 'none';
-        contextStartIdx = -1;
         return;
       }
       var query = before.substring(hashIdx + 1);
-      if (query.includes(' ') && query.length > 30) { contextPopup.style.display = 'none'; contextStartIdx = -1; return; }
+      if (query.includes(' ') && query.length > 30) { contextPopup.style.display = 'none'; return; }
       contextStartIdx = hashIdx;
       contextQuery = query.toLowerCase();
       vscode.postMessage({ type: 'contextSearch', query: contextQuery });
     }
 
     function showContextPopup(files) {
-      // Guard: don't show popup if context was already dismissed or input is empty
-      if (contextStartIdx === -1 || !input.value) {
-        contextPopup.style.display = 'none';
-        return;
-      }
       contextFiles = files;
       contextSelectedIdx = 0;
       if (!files.length) { contextPopup.style.display = 'none'; return; }
@@ -3605,20 +3114,11 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     function pickContext(idx) {
       var file = contextFiles[idx];
       if (!file) return;
-      // Insert the selected reference into the text (Copilot-style: #ref stays in text)
       var before = input.value.substring(0, contextStartIdx);
-      var hashEnd = contextStartIdx + 1 + contextQuery.length;
-      var after = input.value.substring(hashEnd);
-      // Reset state BEFORE modifying input to prevent re-trigger
-      contextPopup.style.display = 'none';
-      contextFiles = [];
-      var savedStartIdx = contextStartIdx;
-      contextStartIdx = -1;
-      contextQuery = '';
-      // Place the full reference in text: #file
-      input.value = before + '#' + file + ' ' + after.replace(/^\s+/, '');
+      var after = input.value.substring(input.selectionStart);
+      input.value = before + '#' + file + ' ' + after;
       input.selectionStart = input.selectionEnd = before.length + 1 + file.length + 1;
-      // Also show as a chip for visual confirmation
+      contextPopup.style.display = 'none';
       addChip(file);
       input.focus();
     }
@@ -3628,6 +3128,21 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
         el.classList.toggle('selected', i === slashSelectedIdx);
       });
     }
+
+    input.addEventListener('keydown', function(e) {
+      if (contextPopup.style.display === 'none') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        contextSelectedIdx = Math.min(contextSelectedIdx + 1, contextFiles.length - 1);
+        updateContextSelection();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        contextSelectedIdx = Math.max(contextSelectedIdx - 1, 0);
+        updateContextSelection();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (contextFiles.length > 0) { e.preventDefault(); pickContext(contextSelectedIdx); }
+      }
+    });
 
     function updateContextSelection() {
       contextListEl.querySelectorAll('.ctx-item').forEach(function(el, i) {
@@ -3682,20 +3197,12 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       msg.appendChild(header);
       msg.appendChild(contentEl);
 
-      // Feedback + actions for assistant messages
+      // Feedback for assistant messages
       if (role === 'assistant') {
         var feedback = document.createElement('div');
         feedback.className = 'msg-feedback';
-        feedback.innerHTML =
-          '<button class="feedback-btn" data-action="fb-copy" title="Copy">' +
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>' +
-          '<button class="feedback-btn" data-action="fb-retry" title="Retry">' +
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></button>' +
-          '<span class="feedback-separator"></span>' +
-          '<button class="feedback-btn" data-vote="up" title="Helpful">' +
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></button>' +
-          '<button class="feedback-btn" data-vote="down" title="Not helpful">' +
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg></button>';
+        feedback.innerHTML = '<button class="feedback-btn" data-vote="up" title="Helpful">&#x1F44D;</button>' +
+          '<button class="feedback-btn" data-vote="down" title="Not helpful">&#x1F44E;</button>';
         msg.appendChild(feedback);
       }
 
@@ -3710,30 +3217,16 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
             btn.classList.add('active');
             setTimeout(function() { btn.classList.remove('active'); }, 1500);
           } else if (action === 'edit') {
-            // Set editing state so send() replaces instead of appending
-            editingMsgEl = btn.closest('.msg');
             input.value = contentEl.textContent;
             input.focus();
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 140) + 'px';
-            // Visual indicator that we're editing
-            if (editingMsgEl) editingMsgEl.style.opacity = '0.5';
           } else if (action === 'retry') {
-            // Find the user message before this assistant message and retry
-            var thisMsg = btn.closest('.msg');
-            var prevSibling = thisMsg ? thisMsg.previousElementSibling : null;
-            var retryText = '';
-            if (prevSibling && prevSibling.classList.contains('msg-user')) {
-              retryText = prevSibling.querySelector('.msg-content').textContent;
-            } else {
-              var userMsgs = messagesEl.querySelectorAll('.msg-user .msg-content');
-              if (userMsgs.length) retryText = userMsgs[userMsgs.length - 1].textContent;
-            }
-            if (retryText) {
-              if (thisMsg) thisMsg.remove();
-              vscode.postMessage({ type: 'chat', text: retryText });
-              stopBtn.classList.add('visible');
-              sendBtn.disabled = true;
+            // Find the last user message and resend
+            var userMsgs = messagesEl.querySelectorAll('.msg-user .msg-content');
+            if (userMsgs.length) {
+              var lastUserMsg = userMsgs[userMsgs.length - 1].textContent;
+              vscode.postMessage({ type: 'chat', content: lastUserMsg });
             }
           }
         });
@@ -3743,35 +3236,8 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       msg.querySelectorAll('.feedback-btn').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
           e.stopPropagation();
-          var action = btn.dataset.action;
-          var vote = btn.dataset.vote;
-          if (action === 'fb-copy') {
-            var text = contentEl.innerText || contentEl.textContent;
-            navigator.clipboard.writeText(text);
-            btn.classList.add('copied');
-            setTimeout(function() { btn.classList.remove('copied'); }, 1500);
-          } else if (action === 'fb-retry') {
-            // Find the user message that precedes this assistant message
-            var thisMsg = btn.closest('.msg');
-            var prevSibling = thisMsg ? thisMsg.previousElementSibling : null;
-            var retryText = '';
-            if (prevSibling && prevSibling.classList.contains('msg-user')) {
-              retryText = prevSibling.querySelector('.msg-content').textContent;
-            } else {
-              var userMsgs = messagesEl.querySelectorAll('.msg-user .msg-content');
-              if (userMsgs.length) retryText = userMsgs[userMsgs.length - 1].textContent;
-            }
-            if (retryText) {
-              // Remove this assistant message (response will replace it)
-              if (thisMsg) thisMsg.remove();
-              vscode.postMessage({ type: 'chat', text: retryText });
-              stopBtn.classList.add('visible');
-              sendBtn.disabled = true;
-            }
-          } else if (vote) {
-            msg.querySelectorAll('.feedback-btn[data-vote]').forEach(function(b) { b.classList.remove('voted'); });
-            btn.classList.add('voted');
-          }
+          msg.querySelectorAll('.feedback-btn').forEach(function(b) { b.classList.remove('voted'); });
+          btn.classList.add('voted');
         });
       });
 
@@ -4045,27 +3511,10 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           hideWelcome();
           assistantText = '';
           currentAssistantEl = addMessage('assistant', '');
-          if (currentAssistantEl) {
-            currentAssistantEl.classList.add('loading');
-            // Add thinking block (Copilot-style collapsible)
-            var thinkBlock = document.createElement('div');
-            thinkBlock.className = 'thinking-block';
-            thinkBlock.id = 'active-thinking';
-            thinkBlock.innerHTML =
-              '<div class="thinking-header">' +
-                '<span class="thinking-icon spinning"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="M12 18v4"/><path d="m4.93 4.93 2.83 2.83"/><path d="m16.24 16.24 2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/><path d="m4.93 19.07 2.83-2.83"/><path d="m16.24 7.76 2.83-2.83"/></svg></span>' +
-                '<span class="thinking-label">Thinking\\u2026</span>' +
-                '<span class="thinking-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>' +
-              '</div>' +
-              '<div class="thinking-body"></div>';
+          // Show thinking animation
+          if (settings.thinking && currentAssistantEl) {
             var content = currentAssistantEl.querySelector('.msg-content');
-            if (content) {
-              content.innerHTML = '';
-              content.appendChild(thinkBlock);
-            }
-            thinkBlock.querySelector('.thinking-header').addEventListener('click', function() {
-              thinkBlock.classList.toggle('collapsed');
-            });
+            if (content) content.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div>';
           }
           setStatus('thinking', 'Thinking\\u2026');
           break;
@@ -4074,64 +3523,16 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           if (msg.text) {
             assistantText += msg.text;
             if (currentAssistantEl) {
-              // Collapse thinking block and show response below it
-              var activeThink = currentAssistantEl.querySelector('#active-thinking');
-              if (activeThink && !activeThink.classList.contains('done')) {
-                activeThink.classList.add('done', 'collapsed');
-                activeThink.querySelector('.thinking-icon').classList.remove('spinning');
-                activeThink.querySelector('.thinking-label').textContent = 'Thought process';
-              }
-              currentAssistantEl.classList.remove('loading');
-
-              // In plan mode, stream into the active step's collapsible content
-              if (currentAssistantEl.getAttribute('data-plan-mode') === 'true') {
-                var planEl = currentAssistantEl.querySelector('#active-plan');
-                if (planEl) {
-                  var activeContent = planEl.querySelector('.plan-step-content.visible');
-                  if (activeContent) {
-                    activeContent.innerHTML = renderMarkdown(assistantText);
-                    activeContent.scrollTop = activeContent.scrollHeight;
-                  }
-                }
-              } else {
-                // Normal mode: render into response-text
-                var content = currentAssistantEl.querySelector('.msg-content');
-                if (content) {
-                  var responseDiv = content.querySelector('.response-text:last-of-type');
-                  if (!responseDiv) {
-                    responseDiv = document.createElement('div');
-                    responseDiv.className = 'response-text';
-                    content.appendChild(responseDiv);
-                  }
-                  responseDiv.innerHTML = renderMarkdown(assistantText);
-                }
-              }
+              var content = currentAssistantEl.querySelector('.msg-content');
+              if (content) content.innerHTML = renderMarkdown(assistantText);
               messagesEl.scrollTop = messagesEl.scrollHeight;
             }
           }
           break;
 
         case 'toolCall':
-          // Show tool call as a thinking step with details
-          if (currentAssistantEl) {
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl && !thinkEl.classList.contains('done')) {
-              var body = thinkEl.querySelector('.thinking-body');
-              if (body) {
-                body.querySelectorAll('.thinking-step:not(.done)').forEach(function(s) { s.classList.add('done'); });
-                var step = document.createElement('div');
-                step.className = 'thinking-step';
-                // Build descriptive text from tool name + key parameters
-                var toolDesc = formatToolStep(msg.toolName, msg.parameters);
-                step.textContent = toolDesc;
-                body.appendChild(step);
-                body.scrollTop = body.scrollHeight;
-              }
-              thinkEl.querySelector('.thinking-label').textContent = (msg.toolName || 'Working') + '\\u2026';
-            }
-          }
           addToolCall(msg.toolName, msg.parameters);
-          setStatus('running', (msg.toolName || 'tool') + '\\u2026');
+          setStatus('running', msg.toolName + '\\u2026');
           break;
 
         case 'toolApproval':
@@ -4140,25 +3541,7 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           break;
 
         case 'toolResult':
-          // Mark the last thinking step as done and show brief result
-          if (currentAssistantEl) {
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl && !thinkEl.classList.contains('done')) {
-              var body = thinkEl.querySelector('.thinking-body');
-              if (body) {
-                var lastStep = body.querySelector('.thinking-step:last-child');
-                if (lastStep && !lastStep.classList.contains('done')) {
-                  lastStep.classList.add(msg.success ? 'done' : 'error');
-                  // Add brief result detail
-                  if (msg.content && typeof msg.content === 'string' && msg.content.length < 80) {
-                    lastStep.textContent += ' \\u2192 ' + msg.content;
-                  }
-                }
-              }
-            }
-          }
           completeToolCall(msg.toolName, msg.success, msg.content);
-          setStatus('thinking', 'Thinking\\u2026');
           break;
 
         case 'progress':
@@ -4169,212 +3552,9 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           showDiffCard(msg.file || 'unknown', msg.diff || '');
           break;
 
-        case 'planCreated':
-          // Render a plan card with steps checklist + collapsible content areas
-          if (currentAssistantEl && msg.plan) {
-            var planCard = document.createElement('div');
-            planCard.className = 'plan-card';
-            planCard.id = 'active-plan';
-            var planHdr = document.createElement('div');
-            planHdr.className = 'plan-header';
-            planHdr.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4"/></svg> Plan (' + (msg.plan.steps ? msg.plan.steps.length : 0) + ' steps)';
-            planCard.appendChild(planHdr);
-            if (msg.plan.goal) {
-              // Strip [Referenced files context] block and show clean goal
-              var cleanGoal = msg.plan.goal.split('[Referenced files context]')[0].split('\\n')[0].trim();
-              if (cleanGoal) {
-                var goalEl = document.createElement('div');
-                goalEl.className = 'plan-goal';
-                goalEl.textContent = cleanGoal;
-                planCard.appendChild(goalEl);
-              }
-            }
-            var stepsList = document.createElement('ul');
-            stepsList.className = 'plan-steps';
-            (msg.plan.steps || []).forEach(function(s, i) {
-              var li = document.createElement('li');
-              li.className = 'plan-step pending';
-              li.setAttribute('data-step', i);
-              var row = document.createElement('div');
-              row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;';
-              row.innerHTML = '<span class="plan-step-icon"></span><span class="plan-step-label">' + escapeHtml(s.description) + '</span><span class="plan-step-mode">' + escapeHtml(s.mode) + '</span><span class="plan-step-toggle"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>';
-              li.appendChild(row);
-              // Add collapsible content area
-              var contentDiv = document.createElement('div');
-              contentDiv.className = 'plan-step-content';
-              contentDiv.setAttribute('data-step-content', i);
-              li.appendChild(contentDiv);
-              // Toggle on click
-              row.addEventListener('click', function() {
-                var toggle = row.querySelector('.plan-step-toggle');
-                toggle.classList.toggle('expanded');
-                contentDiv.classList.toggle('visible');
-              });
-              stepsList.appendChild(li);
-            });
-            planCard.appendChild(stepsList);
-            // Insert into msg-content after thinking block
-            var content = currentAssistantEl.querySelector('.msg-content');
-            if (content) {
-              content.appendChild(planCard);
-            }
-            // Enable multi-step response mode
-            currentAssistantEl.setAttribute('data-plan-mode', 'true');
-          }
-          break;
-
-        case 'planStepUpdate':
-          // Update a plan step's status
-          if (currentAssistantEl && msg.planStep != null) {
-            var planEl = currentAssistantEl.querySelector('#active-plan');
-            if (planEl) {
-              var stepEl = planEl.querySelector('.plan-step[data-step="' + msg.planStep.stepIndex + '"]');
-              if (stepEl) {
-                stepEl.className = 'plan-step ' + (msg.planStep.status || 'pending');
-              }
-            }
-            // When a step starts running, reset text accumulator and show its content area
-            if (msg.planStep.status === 'running') {
-              assistantText = '';
-              // Expand this step's content and collapse previous
-              if (planEl) {
-                planEl.querySelectorAll('.plan-step-content.visible').forEach(function(c) { c.classList.remove('visible'); });
-                planEl.querySelectorAll('.plan-step-toggle.expanded').forEach(function(t) { t.classList.remove('expanded'); });
-                var contentArea = planEl.querySelector('[data-step-content="' + msg.planStep.stepIndex + '"]');
-                if (contentArea) {
-                  contentArea.classList.add('visible');
-                  contentArea.innerHTML = '<em style="opacity:0.5">Working...</em>';
-                  var toggle = stepEl.querySelector('.plan-step-toggle');
-                  if (toggle) toggle.classList.add('expanded');
-                }
-              }
-            }
-            // When step is done, finalize its content area
-            if (msg.planStep.status === 'done' || msg.planStep.status === 'failed') {
-              if (planEl) {
-                var contentArea = planEl.querySelector('[data-step-content="' + msg.planStep.stepIndex + '"]');
-                if (contentArea && assistantText) {
-                  contentArea.innerHTML = renderMarkdown(assistantText);
-                }
-                // Collapse the content area when done
-                contentArea.classList.remove('visible');
-                var toggle = stepEl.querySelector('.plan-step-toggle');
-                if (toggle) toggle.classList.remove('expanded');
-                // Check if all steps are done — switch to summary mode
-                var allDone = !planEl.querySelector('.plan-step.pending, .plan-step.running');
-                if (allDone) {
-                  currentAssistantEl.removeAttribute('data-plan-mode');
-                  assistantText = '';
-                }
-              }
-            }
-          }
-          break;
-
-        case 'thinking':
-          // Stream thinking text into the thinking block as sub-detail
-          if (currentAssistantEl) {
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl && !thinkEl.classList.contains('done')) {
-              var body = thinkEl.querySelector('.thinking-body');
-              if (body && msg.text) {
-                var step = document.createElement('div');
-                step.className = 'thinking-step detail';
-                step.textContent = msg.text;
-                body.appendChild(step);
-                body.scrollTop = body.scrollHeight;
-              }
-              setStatus('thinking', msg.text ? msg.text.substring(0, 60) : 'Thinking\\u2026');
-            }
-          }
-          break;
-
-        case 'thinkingEnd':
-          if (currentAssistantEl) {
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl) {
-              thinkEl.classList.add('done', 'collapsed');
-              thinkEl.querySelector('.thinking-icon').classList.remove('spinning');
-              thinkEl.querySelector('.thinking-label').textContent = 'Thought process';
-              // Mark all steps as done
-              thinkEl.querySelectorAll('.thinking-step').forEach(function(s) { s.classList.add('done'); });
-            }
-          }
-          break;
-
-        case 'phaseChange':
-          if (currentAssistantEl) {
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl && !thinkEl.classList.contains('done')) {
-              var body = thinkEl.querySelector('.thinking-body');
-              if (body) {
-                // Mark previous steps as done
-                body.querySelectorAll('.thinking-step:not(.done)').forEach(function(s) { s.classList.add('done'); });
-                var step = document.createElement('div');
-                step.className = 'thinking-step';
-                var phaseLabel = formatPhaseLabel(msg.phase);
-                step.textContent = phaseLabel;
-                body.appendChild(step);
-                body.scrollTop = body.scrollHeight;
-              }
-              var shortLabel = formatPhaseLabel(msg.phase);
-              thinkEl.querySelector('.thinking-label').textContent = shortLabel + '\\u2026';
-              setStatus('thinking', shortLabel + '\\u2026');
-            }
-          }
-          break;
-
-        case 'changesSummary':
-          // Show file changes section (collapsible)
-          if (currentAssistantEl && msg.summary) {
-            var content = currentAssistantEl.querySelector('.msg-content');
-            if (content) {
-              var changesCard = document.createElement('div');
-              changesCard.className = 'changes-card';
-              var filesCount = msg.summary.filesChanged || 0;
-              var added = msg.summary.linesAdded || 0;
-              var removed = msg.summary.linesRemoved || 0;
-              var changesHdr = document.createElement('div');
-              changesHdr.className = 'changes-header';
-              changesHdr.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> <span>' + filesCount + ' file' + (filesCount !== 1 ? 's' : '') + ' changed</span> <span class="changes-stats"><span class="changes-added">+' + added + '</span> <span class="changes-removed">\\u2212' + removed + '</span></span><span class="changes-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>';
-              changesCard.appendChild(changesHdr);
-              var changesBody = document.createElement('div');
-              changesBody.className = 'changes-body';
-              (msg.summary.files || []).forEach(function(f) {
-                var row = document.createElement('div');
-                row.className = 'changes-file';
-                var statusIcon = f.status === 'A' ? '+' : f.status === 'D' ? '\\u2212' : '\\u2022';
-                var statusClass = f.status === 'A' ? 'added' : f.status === 'D' ? 'removed' : 'modified';
-                row.innerHTML = '<span class="changes-file-status ' + statusClass + '">' + statusIcon + '</span><span class="changes-file-name" data-path="' + escapeHtml(f.path) + '">' + escapeHtml(f.path) + '</span><span class="changes-file-stats"><span class="changes-added">+' + (f.added || 0) + '</span> <span class="changes-removed">\\u2212' + (f.removed || 0) + '</span></span>';
-                row.querySelector('.changes-file-name').addEventListener('click', function() {
-                  openFile(f.path);
-                });
-                changesBody.appendChild(row);
-              });
-              changesCard.appendChild(changesBody);
-              content.appendChild(changesCard);
-              // Toggle collapse
-              changesHdr.addEventListener('click', function() {
-                changesCard.classList.toggle('expanded');
-              });
-            }
-          }
-          break;
-
         case 'responseEnd':
-          // Finalize thinking block and remove loading state
+          // Add agent badge to completed assistant message
           if (currentAssistantEl) {
-            currentAssistantEl.classList.remove('loading');
-            var thinkEl = currentAssistantEl.querySelector('#active-thinking');
-            if (thinkEl) {
-              thinkEl.classList.add('done', 'collapsed');
-              thinkEl.querySelector('.thinking-icon').classList.remove('spinning');
-              thinkEl.querySelector('.thinking-label').textContent = 'Thought process';
-              thinkEl.querySelectorAll('.thinking-step').forEach(function(s) { s.classList.add('done'); });
-              // Remove thinking block if it has no steps (nothing to show)
-              var body = thinkEl.querySelector('.thinking-body');
-              if (body && !body.children.length) thinkEl.remove();
-            }
             var hdr = currentAssistantEl.querySelector('.msg-header');
             if (hdr && !hdr.querySelector('.agent-badge')) {
               var badge = document.createElement('span');
@@ -4482,6 +3662,14 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
           renderSessionCard();
           break;
 
+        case 'workspaceScope':
+          workspaceScope = msg.folders || [];
+          workspaceScopeSelected = msg.selected || [];
+          renderWorkspaceScopePill();
+          renderSessionCard();
+          renderWorkspaceScopeMenu();
+          break;
+
         case 'response':
           addMessage('assistant', msg.text);
           break;
@@ -4499,6 +3687,7 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
     });
 
     if (activeModeLabel) activeModeLabel.textContent = activeMode;
+    renderWorkspaceScopePill();
     renderSessionCard();
 
     // ── Keyboard shortcuts overlay ──
@@ -4695,26 +3884,14 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
       riskLevel = riskLevel || 'medium';
       var card = document.createElement('div');
       card.className = 'approval-card';
-      // Build compact summary based on tool type
-      var summaryLine = '';
-      if (parameters && parameters.path) {
-        summaryLine = parameters.path;
-      }
-      var hasContent = parameters && parameters.content && parameters.content.length > 0;
-      var contentLines = hasContent ? parameters.content.split('\\n').length : 0;
-      var contentPreview = hasContent ? contentLines + ' lines' : '';
-
       card.innerHTML =
         '<div class="approval-card-header">' +
           '<div class="approval-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>' +
           '<div class="approval-card-info"><div class="approval-card-title">' + escapeHtml(toolName) + '</div>' +
-          '<div class="approval-card-subtitle">' + (summaryLine ? escapeHtml(summaryLine) + (contentPreview ? ' (' + contentPreview + ')' : '') : 'Requires your approval') + '</div></div>' +
+          '<div class="approval-card-subtitle">Requires your approval to proceed</div></div>' +
           '<span class="approval-card-risk ' + riskLevel + '">' + riskLevel + '</span>' +
         '</div>' +
-        '<div class="approval-card-body collapsed">' +
-          '<div class="approval-card-toggle">Show details \\u25BC</div>' +
-          '<pre class="approval-card-pre" style="display:none">' + escapeHtml(hasContent ? parameters.content : JSON.stringify(parameters, null, 2)) + '</pre>' +
-        '</div>' +
+        '<div class="approval-card-body">' + escapeHtml(JSON.stringify(parameters, null, 2)) + '</div>' +
         '<div class="approval-card-actions">' +
           '<button class="approval-btn allow">Allow</button>' +
           '<button class="approval-btn always">Always Allow</button>' +
@@ -4722,19 +3899,6 @@ Run \`/setup\` to scaffold the \`.opencob/\` directory with examples.`,
         '</div>';
       messagesEl.appendChild(card);
       messagesEl.scrollTop = messagesEl.scrollHeight;
-
-      // Toggle detail view
-      card.querySelector('.approval-card-toggle').addEventListener('click', function() {
-        var pre = card.querySelector('.approval-card-pre');
-        var toggle = card.querySelector('.approval-card-toggle');
-        if (pre.style.display === 'none') {
-          pre.style.display = 'block';
-          toggle.textContent = 'Hide details \\u25B2';
-        } else {
-          pre.style.display = 'none';
-          toggle.textContent = 'Show details \\u25BC';
-        }
-      });
 
       card.querySelector('.approval-btn.allow').addEventListener('click', function() {
         vscode.postMessage({ type: 'approveAction', tool: toolName, decision: 'allow' });

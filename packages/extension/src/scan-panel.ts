@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import type { FindingsScanner, Finding } from '@opencob/core';
+import type { FindingsScanner } from '@opencob/core';
 
 interface ScanFinding {
   id: string;
@@ -23,7 +23,7 @@ export class ScanPanel {
   public static show(
     extensionUri: vscode.Uri,
     scanner: FindingsScanner,
-    workspaceRoot: string,
+    _workspaceRoot: string,
   ): ScanPanel {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {

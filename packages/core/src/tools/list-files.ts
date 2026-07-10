@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises';
-import { resolve, relative, join } from 'node:path';
+import { relative, join } from 'node:path';
 import type { Tool, ToolResult } from './types.js';
 import { resolveWorkspacePath, isPathError } from './workspace-paths.js';
 

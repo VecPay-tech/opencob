@@ -47,13 +47,11 @@ import { parseDds, type DdsParseResult } from '../legacy/dds-parser.js';
 import {
   humanizeFieldLabel,
   assignFunctionKeyLabels,
-  resolveMsgcon,
   extractClDriverTitle,
   resolveHeaderValue,
   generateFieldLegend,
   type HeaderContext,
 } from './dspf-enhancements.js';
-import { ibmiNameToExtension, ibmiExtractMemberName } from './ibmi-name-resolver.js';
 
 /**
  * Generate Mermaid diagrams from source code.
@@ -182,7 +180,7 @@ export function createGenerateDiagramTool(workspaceRoot: string): Tool {
 
 const MODERN_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'java', 'go']);
 
-function inferAutoDiagramType(fullPath: string, stat: fs.Stats, root: string): string {
+function inferAutoDiagramType(fullPath: string, stat: fs.Stats, _root: string): string {
   if (stat.isDirectory()) {
     const files: string[] = [];
     collectFiles(fullPath, files, 2);
@@ -2695,7 +2693,6 @@ function scanDirectoryForUsageRefs(
 function generateUsageMap(programName: string, content: string): DiagramData | null {
   const nodes: DiagramNode[] = [];
   const edges: DiagramEdge[] = [];
-  const upper = content.toUpperCase();
   const sourceId = `src_${sanitizeId(programName)}`;
   nodes.push({ id: sourceId, label: programName, type: 'target', startLine: 0 });
 
