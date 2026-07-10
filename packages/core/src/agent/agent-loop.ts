@@ -16,6 +16,7 @@ import { CustomizationLoader } from './customization-loader.js';
 import type { HookContext } from './hooks-engine.js';
 import { ChangeTracker } from './change-tracker.js';
 import { GitContextResolver } from './git-context-resolver.js';
+import { SystemPromptBuilder } from './system-prompt-builder.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
@@ -113,6 +114,7 @@ export class AgentLoop {
   private config: AgentConfig;
   private changeTracker = new ChangeTracker();
   private gitResolver = new GitContextResolver();
+  private promptBuilder: SystemPromptBuilder;
 
   constructor(
     llm: LlmAdapter,
@@ -146,6 +148,12 @@ export class AgentLoop {
     this.customizationLoader = this.config.workspaceRoot
       ? new CustomizationLoader(this.config.workspaceRoot)
       : null;
+    this.promptBuilder = new SystemPromptBuilder({
+      modeEngine,
+      customizationLoader: this.customizationLoader,
+      skillsLoader: this.config.skillsLoader ?? null,
+      workspaceRoot: this.config.workspaceRoot,
+    });
   }
 
   /** Hot-swap the LLM adapter (e.g. when user changes provider setting) */
@@ -347,7 +355,7 @@ export class AgentLoop {
       rounds++;
 
       // Build messages for LLM
-      const systemPrompt = this.buildSystemPrompt();
+      const systemPrompt = this.promptBuilder.build();
       const messages = this.conversationManager.getContextWindow(
         systemPrompt,
         this.config.maxContextTokens,
@@ -761,140 +769,6 @@ export class AgentLoop {
     }
   }
 
-  private buildSystemPrompt(): string {
-    const mode = this.modeEngine.getActive();
-    const repoTree = this.buildCompactRepoTree();
-
-    const parts = [
-      mode.roleDefinition,
-      '',
-      mode.customInstructions || '',
-      '',
-      '## Guidelines',
-      '',
-      '- Be concise and direct in your responses.',
-      '- Use the available tools to accomplish tasks. Call tools rather than describing what you would do.',
-      '- When users ask about architecture, flow, dependencies, or structure, prefer calling generate_diagram and briefly explain the result.',
-      '- When modifying files, use apply_diff for targeted changes and write_to_file for new files.',
-      '- Always read a file before modifying it.',
-      '- Explain what you are doing and why before making changes.',
-      '- If a tool call fails, diagnose the error and try a different approach.',
-      repoTree ? `\n## Workspace Structure\n\n\`\`\`\n${repoTree}\n\`\`\`` : '',
-    ];
-
-    // Inject customization (instructions, CODEOWNERS-scoped) and lifecycle hooks
-    if (this.customizationLoader) {
-      const resolved = this.customizationLoader.resolve([]);
-      if (resolved.systemPromptAdditions.length > 0) {
-        parts.push('\n## Project Instructions\n');
-        parts.push(...resolved.systemPromptAdditions);
-      }
-
-      // Fire onChatStart hooks
-      const hookResult = this.customizationLoader.fireHook({ event: 'onChatStart' });
-      if (hookResult.instructions.length > 0) {
-        parts.push('\n## Active Hooks\n');
-        parts.push(...hookResult.instructions);
-      }
-    }
-
-    // Self-help knowledge: tell the agent where docs are
-    if (this.config.workspaceRoot) {
-      const docsPath = nodePath.join(this.config.workspaceRoot, 'docs', 'pages');
-      try {
-        const fsStat = require('node:fs');
-        if (fsStat.existsSync(docsPath)) {
-          parts.push('\n## Self-Help Documentation\n');
-          parts.push(
-            'When users ask how to use OpenCob, configure features, write instructions, or troubleshoot issues, ' +
-              'read the relevant MDX file from docs/pages/ to provide accurate guidance. Key docs:\n' +
-              '- docs/pages/installation.mdx — Installation & setup\n' +
-              '- docs/pages/getting-started.mdx — First steps, slash commands, modes\n' +
-              '- docs/pages/customization.mdx — Instructions, agents, prompts, .opencob/ structure\n' +
-              '- docs/pages/hooks.mdx — Lifecycle hooks (events, creation, examples)\n' +
-              '- docs/pages/codeowners.mdx — CODEOWNERS integration & owner-scoped instructions\n' +
-              '- docs/pages/modes.mdx — Operating modes & custom agents\n' +
-              '- docs/pages/tools.mdx — Available tools & approval settings\n' +
-              '- docs/pages/commands.mdx — Commands, shortcuts, settings reference\n' +
-              '- docs/pages/mcp.mdx — MCP server configuration\n' +
-              '- docs/pages/troubleshooting.mdx — Common issues & fixes\n' +
-              '\nRead the appropriate file and use its content to answer the user accurately.',
-          );
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    return parts.filter(Boolean).join('\n');
-  }
-
-  /** Build a compact repo tree for system prompt context (F6.4) */
-  private buildCompactRepoTree(): string {
-    if (!this.config.workspaceRoot) return '';
-    try {
-      const root = this.config.workspaceRoot;
-      const lines: string[] = [];
-      const maxLines = 60;
-
-      const walk = (dir: string, prefix: string, depth: number): void => {
-        if (depth > 3 || lines.length >= maxLines) return;
-        let entries: import('node:fs').Dirent[];
-        try {
-          entries = require('node:fs').readdirSync(dir, { withFileTypes: true });
-        } catch {
-          return;
-        }
-        // Skip common non-essential directories
-        const skip = new Set([
-          'node_modules',
-          '.git',
-          'dist',
-          'build',
-          '.next',
-          '.turbo',
-          'coverage',
-          '.nyc_output',
-          '__pycache__',
-          '.venv',
-          'target',
-        ]);
-        entries = entries
-          .filter((e: import('node:fs').Dirent) => !skip.has(e.name) && !e.name.startsWith('.'))
-          .sort((a: import('node:fs').Dirent, b: import('node:fs').Dirent) =>
-            a.isDirectory() === b.isDirectory()
-              ? a.name.localeCompare(b.name)
-              : a.isDirectory()
-                ? -1
-                : 1,
-          );
-
-        for (let i = 0; i < entries.length && lines.length < maxLines; i++) {
-          const entry = entries[i];
-          const isLast = i === entries.length - 1;
-          const connector = isLast ? '└── ' : '├── ';
-          const childPrefix = prefix + (isLast ? '    ' : '│   ');
-          lines.push(`${prefix}${connector}${entry.name}${entry.isDirectory() ? '/' : ''}`);
-          if (entry.isDirectory()) {
-            walk(nodePath.join(dir, entry.name), childPrefix, depth + 1);
-          }
-        }
-      };
-
-      const rootName = nodePath.basename(root);
-      lines.push(`${rootName}/`);
-      walk(root, '', 0);
-
-      if (lines.length >= maxLines) {
-        lines.push('... (truncated)');
-      }
-
-      return lines.join('\n');
-    } catch {
-      return '';
-    }
-  }
-
   /**
    * Try to parse a text response as a JSON tool call.
    * Some models output tool parameters as plain text JSON instead of using function calling.
@@ -1019,7 +893,7 @@ export class AgentLoop {
       while (subtaskRounds < this.config.maxToolRounds) {
         subtaskRounds++;
 
-        const systemPrompt = this.buildSystemPrompt();
+        const systemPrompt = this.promptBuilder.build();
         const messages = this.conversationManager.getContextWindow(
           systemPrompt,
           this.config.maxContextTokens,
@@ -1183,7 +1057,7 @@ export class AgentLoop {
 
       this.conversationManager.addMessage({ role: 'user', content: summaryPrompt });
 
-      const systemPrompt = this.buildSystemPrompt();
+      const systemPrompt = this.promptBuilder.build();
       const messages = this.conversationManager.getContextWindow(
         systemPrompt,
         this.config.maxContextTokens,
