@@ -53,6 +53,10 @@ export {
   PLI_EXTS,
   BMS_EXTS,
   DDS_EXTS,
+  JCL_EXTS,
+  REXX_EXTS,
+  NATURAL_EXTS,
+  ASM_EXTS,
   classifyExtension,
   getAvailableDiagramTypes,
 } from './tools/diagram-types.js';

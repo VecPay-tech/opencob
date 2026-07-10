@@ -873,7 +873,7 @@ export class FindingsScanner {
         if (entry.isDirectory()) {
           files.push(...this.collectFiles(full, maxDepth, depth + 1));
         } else if (
-          /\.(ts|tsx|js|jsx|py|java|go|cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|dds|pf|lf)$/i.test(
+          /\.(ts|tsx|js|jsx|py|java|go|cob|sbc|ccp|ccc|cbe|cbl|cpy|sqb|pco|cblcpy|rmc|obs|clle|clp|cmd|mnu|rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|inc|dds|pf|lf|jcl|job|proc|rexx|rex|exec|nsp|nsa|nsg|nsl|nsh|nat|hlasm|mac)$/i.test(
             entry.name,
           )
         ) {
