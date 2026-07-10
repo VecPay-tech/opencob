@@ -76,7 +76,7 @@ jobs:
 
   # ─── Test ───────────────────────────────────────────────────────────────────
   test:
-    name: Test
+    name: Test & Coverage
     needs: install
     runs-on: ubuntu-latest
     steps:
@@ -97,8 +97,36 @@ jobs:
             packages/*/node_modules
           key: modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-      - name: Test
-        run: pnpm test
+      - name: Test with coverage
+        run: pnpm --filter @opencob/core test:coverage
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            packages/core/coverage/lcov.info
+            packages/core/coverage/coverage-summary.json
+          retention-days: 14
+
+      - name: Post coverage summary
+        if: always()
+        run: |
+          SUMMARY="packages/core/coverage/coverage-summary.json"
+          if [ -f "$SUMMARY" ]; then
+            node -e "
+              const s = JSON.parse(require('fs').readFileSync('$SUMMARY'));
+              const t = s.total;
+              console.log('## Coverage Summary');
+              console.log('| Metric | Covered | Total | % |');
+              console.log('|--------|---------|-------|---|');
+              ['lines','functions','branches','statements'].forEach(k => {
+                const m = t[k];
+                console.log('| ' + k + ' | ' + m.covered + ' | ' + m.total + ' | ' + m.pct.toFixed(1) + '% |');
+              });
+            " >> \$GITHUB_STEP_SUMMARY
+          fi
 
   # ─── Typecheck ──────────────────────────────────────────────────────────────
   typecheck:
