@@ -13,8 +13,16 @@ these as first-class citizens in analysis, suggestions, and tooling decisions.
 - Follow the project's existing code style and conventions (see CLAUDE.md)
 - Write concise, readable code; prefer clarity over cleverness
 - Add tests for new functionality — Vitest, no real I/O (use mocks)
-- Run `pnpm lint` and `pnpm test` before reporting a task complete
+- Run `pnpm lint`, `pnpm test`, and `pnpm build` before reporting substantial tasks complete
 - Prefer editing existing files over creating new ones
+
+## Response and Change Quality
+
+- Start with the direct answer or result, then provide concise supporting details.
+- Keep diffs minimal and scoped to the request; avoid opportunistic rewrites.
+- Include file references for key changes so reviewers can verify quickly.
+- If a requirement cannot be completed, state the blocker and provide the best viable alternative.
+- When behavior changes, update docs and tests in the same change set.
 
 ## Architecture Awareness
 
@@ -34,6 +42,20 @@ these as first-class citizens in analysis, suggestions, and tooling decisions.
   shell-specific syntax, test commands with the cross-platform `command` tool abstraction
 - Token efficiency — the `ConversationCompactor` manages budgets; new features should not balloon
   context unexpectedly
+
+## Security and Privacy Guardrails
+
+- Never log or commit secrets, keys, tokens, or proprietary customer data.
+- Treat all workspace input as untrusted; sanitize where data crosses trust boundaries.
+- Prefer allowlists and explicit capability checks for tool and command execution.
+- Keep network access opt-in and explicit to preserve local-first guarantees.
+
+## Monorepo Workflow
+
+- Use `pnpm` (not npm or yarn) for all dependency and script operations.
+- Prefer targeted commands first (for example, `pnpm --filter <pkg> test`) before full-repo runs.
+- Respect Turborepo task boundaries and avoid unnecessary cross-package coupling.
+- For user-facing changes, include a changeset (`pnpm changeset`) before merge.
 
 ## Conventions Reminder
 

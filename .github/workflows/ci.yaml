@@ -186,6 +186,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Validate .opencob config
+        run: pnpm validate:opencob
+
   # ─── Commitlint (PRs) ──────────────────────────────────────────────────────
   commitlint:
     name: Commit Messages
