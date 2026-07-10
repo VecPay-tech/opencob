@@ -52,4 +52,48 @@ export class GitContextResolver {
       return `(git log failed: ${err instanceof Error ? err.message : String(err)})`;
     }
   }
+
+  /**
+   * Rewrites a /review or /create-pr slash command into a full LLM prompt
+   * with embedded git context. Returns null if the command is not handled here.
+   */
+  resolveSlashCommand(
+    cmd: string,
+    remainder: string,
+    workspaceRoot: string,
+  ): { message: string } | { error: string } | null {
+    if (cmd === '/review') {
+      if (remainder && this.looksLikeBranch(remainder)) {
+        const diff = this.resolveGitBranchDiff(remainder, workspaceRoot);
+        return {
+          message:
+            `Review the following branch diff (comparing "${remainder}" against HEAD) for quality, security, performance, and maintainability issues. Provide a comprehensive analysis with specific improvement suggestions.\n\n` +
+            diff,
+        };
+      }
+      if (!remainder) {
+        const diff = this.resolveGitBranchDiff('HEAD', workspaceRoot);
+        return {
+          message:
+            'Review the following uncommitted changes for quality, security, performance, and maintainability issues. Suggest improvements.\n\n' +
+            diff,
+        };
+      }
+      return null; // not a branch — let SlashCommandHandler's rewrite stand
+    }
+    if (cmd === '/create-pr') {
+      const baseBranch = remainder || 'main';
+      if (!this.looksLikeBranch(baseBranch)) {
+        return { error: 'Invalid branch name: must contain only letters, digits, _, ., /, -' };
+      }
+      const prContext = this.resolveGitPrContext(baseBranch, workspaceRoot);
+      return {
+        message:
+          `Generate a pull request title and description for the following changes (comparing current branch against "${baseBranch}"). ` +
+          `Use Conventional Commit style for the title. Structure the description with: ## Summary, ## Changes, ## Testing.\n\n` +
+          prContext,
+      };
+    }
+    return null;
+  }
 }
