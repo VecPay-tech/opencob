@@ -154,7 +154,6 @@ jobs:
 
       - name: Lint
         run: pnpm lint
-        continue-on-error: true
 
   # ─── Commitlint (PRs) ──────────────────────────────────────────────────────
   commitlint:
@@ -195,7 +194,8 @@ jobs:
         run: |
           if [[ "${{ needs.build.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \
-             [[ "${{ needs.typecheck.result }}" != "success" ]]; then
+             [[ "${{ needs.typecheck.result }}" != "success" ]] || \
+             [[ "${{ needs.lint.result }}" != "success" ]]; then
             echo "❌ Required jobs failed"
             exit 1
           fi
