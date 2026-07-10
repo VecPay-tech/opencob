@@ -17,7 +17,7 @@ import { ChangeTracker } from './change-tracker.js';
 import { GitContextResolver } from './git-context-resolver.js';
 import { SystemPromptBuilder } from './system-prompt-builder.js';
 import { SlashCommandHandler } from './slash-command-handler.js';
-import { ToolCallLoop } from './tool-call-loop.js';
+import { ToolCallLoop, type ToolCallLoopOpts } from './tool-call-loop.js';
 import * as fs from 'node:fs/promises';
 import * as nodePath from 'node:path';
 
@@ -163,20 +163,7 @@ export class AgentLoop {
       toolRegistry,
       customCommands: this.customCommands,
     });
-    this.toolCallLoop = new ToolCallLoop({
-      llm: this.llm,
-      toolRegistry: this.toolRegistry,
-      conversationManager: this.conversationManager,
-      redactionEngine: this.redactionEngine,
-      changeTracker: this.changeTracker,
-      maxToolRounds: this.config.maxToolRounds,
-      maxSelfCorrectionAttempts: this.config.maxSelfCorrectionAttempts ?? 3,
-      enablePostEditVerification: this.config.enablePostEditVerification ?? true,
-      postEditVerifier: this.postEditVerifier,
-      workspaceRoot: this.config.workspaceRoot,
-      snapshotManager: snapshotManager ?? null,
-      customizationLoader: this.customizationLoader,
-    });
+    this.toolCallLoop = new ToolCallLoop(this.buildToolCallLoopOpts());
   }
 
   /** Hot-swap the LLM adapter (e.g. when user changes provider setting) */
@@ -186,20 +173,7 @@ export class AgentLoop {
       this.compactor = new ConversationCompactor(adapter);
     }
     this.orchestrator = new OrchestratorEngine(adapter, this.modeEngine);
-    this.toolCallLoop = new ToolCallLoop({
-      llm: this.llm,
-      toolRegistry: this.toolRegistry,
-      conversationManager: this.conversationManager,
-      redactionEngine: this.redactionEngine,
-      changeTracker: this.changeTracker,
-      maxToolRounds: this.config.maxToolRounds,
-      maxSelfCorrectionAttempts: this.config.maxSelfCorrectionAttempts ?? 3,
-      enablePostEditVerification: this.config.enablePostEditVerification ?? true,
-      postEditVerifier: this.postEditVerifier,
-      workspaceRoot: this.config.workspaceRoot,
-      snapshotManager: this.snapshotManager,
-      customizationLoader: this.customizationLoader,
-    });
+    this.toolCallLoop = new ToolCallLoop(this.buildToolCallLoopOpts());
   }
 
   /** Process a user message and yield agent events (streaming) */
@@ -415,7 +389,12 @@ export class AgentLoop {
   /** Update the LLM adapter (e.g., when user switches models) */
   setLlm(llm: LlmAdapter): void {
     this.llm = llm;
-    this.toolCallLoop = new ToolCallLoop({
+    this.toolCallLoop = new ToolCallLoop(this.buildToolCallLoopOpts());
+  }
+
+  /** Build ToolCallLoop options from current instance state (single source of truth) */
+  private buildToolCallLoopOpts(): ToolCallLoopOpts {
+    return {
       llm: this.llm,
       toolRegistry: this.toolRegistry,
       conversationManager: this.conversationManager,
@@ -428,7 +407,7 @@ export class AgentLoop {
       workspaceRoot: this.config.workspaceRoot,
       snapshotManager: this.snapshotManager,
       customizationLoader: this.customizationLoader,
-    });
+    };
   }
 
   /** Get current mode */
