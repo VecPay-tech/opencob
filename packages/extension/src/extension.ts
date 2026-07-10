@@ -10,6 +10,7 @@ import { QuickChatProvider } from './chat/quick-chat-provider.js';
 import { EditsPanelProvider } from './edits/edits-panel-provider.js';
 import { SettingsPanelProvider } from './settings/settings-panel-provider.js';
 import { registerChatParticipant } from './chat/chat-participant.js';
+import { DiagramPanel } from './diagram-panel.js';
 
 import { EEClient } from './enterprise/ee-client.js';
 import {
@@ -52,6 +53,7 @@ import {
   generateDiagramFromContent,
   classifyExtension,
   getAvailableDiagramTypes,
+  getSectionsFromContent,
 } from '@opencob/core';
 
 function computeWorkspaceRoot(): string {
@@ -127,59 +129,74 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return `opencob.${section}.apiKey`;
   };
 
+  // When we clear a legacy setting during migration, VS Code fires
+  // onDidChangeConfiguration. This flag prevents that self-triggered event from
+  // re-running migration + rebuilding the adapter + firing testConnection in a
+  // re-entrant cascade (the root cause of slow activation).
+  let suppressConfigReload = false;
+
   const migrateLegacySecretSetting = async (
     settingKey: string,
     secretId: string,
   ): Promise<void> => {
-    const settingValue = vscode.workspace.getConfiguration('OpenCob').get<string>(settingKey, '');
-    const legacyValue = settingValue.trim();
-    if (!legacyValue) return;
+    try {
+      const settingValue = vscode.workspace.getConfiguration('OpenCob').get<string>(settingKey, '');
+      const legacyValue = settingValue.trim();
+      if (!legacyValue) return;
 
-    const existingSecret = await context.secrets.get(secretId);
-    if (!existingSecret) {
-      await context.secrets.store(secretId, legacyValue);
+      const existingSecret = await context.secrets.get(secretId);
+      if (!existingSecret) {
+        await context.secrets.store(secretId, legacyValue);
+      }
+
+      await vscode.workspace
+        .getConfiguration('OpenCob')
+        .update(settingKey, '', vscode.ConfigurationTarget.Global);
+    } catch (error) {
+      console.warn(`[OpenCob] Failed to migrate secret setting: ${settingKey}`, error);
     }
-
-    await vscode.workspace
-      .getConfiguration('OpenCob')
-      .update(settingKey, '', vscode.ConfigurationTarget.Global);
   };
 
   const migrateLegacySecrets = async (): Promise<void> => {
-    const providers = ['litellm', 'openai', 'azure', 'anthropic', 'gemini', 'openai-compatible'];
-    for (const prov of providers) {
-      const section = providerSectionFor(prov);
-      const secretId = apiKeySecretIdFor(prov);
-      if (!secretId) continue;
-      await migrateLegacySecretSetting(`${section}.apiKey`, secretId);
+    suppressConfigReload = true;
+    try {
+      const providers = ['litellm', 'openai', 'azure', 'anthropic', 'gemini', 'openai-compatible'];
+      for (const prov of providers) {
+        const section = providerSectionFor(prov);
+        const secretId = apiKeySecretIdFor(prov);
+        if (!secretId) continue;
+        await migrateLegacySecretSetting(`${section}.apiKey`, secretId);
+      }
+      await migrateLegacySecretSetting('enterprise.token', 'opencob.enterprise.token');
+    } finally {
+      // Reset on the next tick so the queued change events triggered by our own
+      // config.update calls are ignored by the change handler.
+      setTimeout(() => {
+        suppressConfigReload = false;
+      }, 0);
     }
-    await migrateLegacySecretSetting('enterprise.token', 'opencob.enterprise.token');
   };
 
+  // Read-only resolver: prefer SecretStorage, fall back to the legacy setting.
+  // IMPORTANT: this must not write settings — doing so during adapter creation or
+  // testConnection would fire config-change events and cause reload storms.
   const getProviderApiKey = async (prov: string): Promise<string> => {
     const secretId = apiKeySecretIdFor(prov);
     if (!secretId) return '';
 
-    const fromSecret = await context.secrets.get(secretId);
-    if (fromSecret && fromSecret.trim().length > 0) return fromSecret;
+    try {
+      const fromSecret = await context.secrets.get(secretId);
+      if (fromSecret && fromSecret.trim().length > 0) return fromSecret;
+    } catch (error) {
+      console.warn(`[OpenCob] Failed to read API key from SecretStorage for ${prov}`, error);
+    }
 
     const section = providerSectionFor(prov);
-    const fromSettings = vscode.workspace
+    return vscode.workspace
       .getConfiguration('OpenCob')
       .get<string>(`${section}.apiKey`, '')
       .trim();
-    if (fromSettings) {
-      await context.secrets.store(secretId, fromSettings);
-      await vscode.workspace
-        .getConfiguration('OpenCob')
-        .update(`${section}.apiKey`, '', vscode.ConfigurationTarget.Global);
-      return fromSettings;
-    }
-
-    return '';
   };
-
-  await migrateLegacySecrets();
 
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.text = `$(hubot) ${config.get<string>('model.chat', 'qwen2.5-coder:7b')}`;
@@ -975,14 +992,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Show the diagram output in a new editor tab
-      const outputDoc = await vscode.workspace.openTextDocument({
-        content: result.content,
-        language: result.metadata?.format === 'ascii' ? 'text' : 'markdown',
-      });
-      await vscode.window.showTextDocument(outputDoc, {
-        viewColumn: vscode.ViewColumn.Beside,
-        preview: true,
+      // Render the diagram in the interactive webview (mermaid.js) instead of
+      // dumping raw markdown/mermaid text into an editor tab.
+      DiagramPanel.create(context, {
+        content,
+        ext,
+        filePath,
+        currentType: selected.label,
+        currentSectionId: undefined,
+        currentDirection: 'TD',
+        currentZoom: 100,
+        availableTypes: available,
+        sections: getSectionsFromContent(content, ext),
       });
     }),
   );
@@ -1079,6 +1100,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Listen for provider/connection settings changes and hot-swap the adapter
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // Ignore change events triggered by our own secret-migration writes to avoid
+      // a re-entrant reload cascade (rebuild adapter + testConnection storm).
+      if (suppressConfigReload) {
+        return;
+      }
+
       const settingsTouched =
         e.affectsConfiguration('OpenCob.model.provider') ||
         e.affectsConfiguration('OpenCob.ollama') ||
@@ -1094,7 +1121,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       void (async () => {
-        await migrateLegacySecrets();
+        try {
+          await migrateLegacySecrets();
+        } catch (error) {
+          console.warn('[OpenCob] Legacy secret migration failed on config change', error);
+        }
         config = vscode.workspace.getConfiguration('OpenCob');
         provider = config.get<string>('model.provider', 'ollama');
         llmAdapter = await createLlmAdapterFromConfig();
@@ -1110,6 +1141,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })();
     }),
   );
+
+  // One-time legacy secret migration — runs in the background so it never blocks
+  // activation. The config-change handler ignores the resulting writes via
+  // suppressConfigReload, so no reload/testConnection cascade occurs.
+  void migrateLegacySecrets().catch((error) => {
+    console.warn('[OpenCob] Background secret migration failed', error);
+  });
 
   // Mode indicator in status bar
   const modeStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);

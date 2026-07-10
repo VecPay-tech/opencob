@@ -87,7 +87,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.extensionUri],
     };
 
-    webviewView.webview.html = this.getHtml();
+    const html = this.getHtml();
+    webviewView.webview.html = html;
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       switch (message.type) {
@@ -113,7 +114,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           this.sendActiveConversation();
           break;
         case 'chat':
-          await this.handleChatMessage(message.text);
+          await this.handleChatMessage(message.text ?? message.content ?? '');
           break;
         case 'switchMode':
           this.setMode(message.mode);
@@ -525,8 +526,17 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
   private turnCount = 0;
 
   private async handleChatMessage(text: string): Promise<void> {
+    const normalizedText = (text ?? '').trim();
+    if (!normalizedText) {
+      this.view?.webview.postMessage({
+        type: 'error',
+        text: 'OpenCob: Prompt is empty. Please enter a message.',
+      });
+      return;
+    }
+
     outputChannel.appendLine(
-      `[chat] handleChatMessage called, text="${text}", isProcessing=${this.isProcessing}, view=${!!this.view}`,
+      `[chat] handleChatMessage called, text="${normalizedText}", isProcessing=${this.isProcessing}, view=${!!this.view}`,
     );
     if (this.isProcessing) {
       outputChannel.appendLine('[chat] BLOCKED — isProcessing is true, ignoring message');
@@ -536,7 +546,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     try {
       // Resolve #file context references
-      const withFileReferences = await this.resolveFileReferences(text);
+      const withFileReferences = await this.resolveFileReferences(normalizedText);
       const processedText = await this.injectWorkspaceStructureContext(withFileReferences);
 
       // Signal start of response
@@ -556,7 +566,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       // Auto-title: on first user message, derive a short title from input text
       this.turnCount++;
       if (this.turnCount === 1) {
-        const title = text.length > 50 ? text.slice(0, 47) + '...' : text;
+        const title = normalizedText.length > 50 ? normalizedText.slice(0, 47) + '...' : normalizedText;
         const active = this.conversationManager.getActive();
         if (active) {
           (
@@ -2220,6 +2230,12 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     const vscode = acquireVsCodeApi();
     const messagesEl = document.getElementById('messages');
     const welcomeEl = document.getElementById('welcome');
+    // Snapshot the initial messages markup (drop-zone + welcome) so we can restore
+    // the welcome screen after the container is cleared (e.g. empty conversation load).
+    const initialMessagesHTML = messagesEl ? messagesEl.innerHTML : '';
+    function showWelcome() {
+      if (messagesEl) messagesEl.innerHTML = initialMessagesHTML;
+    }
     const input = document.getElementById('input');
     const sendBtn = document.getElementById('send-btn');
     const enhanceBtn = document.getElementById('enhance-btn');
@@ -2465,7 +2481,8 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
 
     // ── Helpers ──
     function hideWelcome() {
-      if (welcomeEl) welcomeEl.style.display = 'none';
+      var w = document.getElementById('welcome');
+      if (w) w.style.display = 'none';
     }
 
     function setStatus(state, text) {
@@ -2479,13 +2496,15 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       return el.innerHTML;
     }
 
-    // ── Welcome actions ──
-    document.querySelectorAll('.welcome-action').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        const prompt = btn.dataset.prompt;
+    // ── Welcome actions (event delegation survives welcome DOM rebuilds) ──
+    if (messagesEl) {
+      messagesEl.addEventListener('click', function(e) {
+        var btn = e.target && e.target.closest ? e.target.closest('.welcome-action') : null;
+        if (!btn) return;
+        var prompt = btn.dataset.prompt;
         if (prompt) { input.value = prompt; send(); }
       });
-    });
+    }
 
     // ── History ──
     historyBtn.addEventListener('click', function() {
@@ -2783,7 +2802,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
       pill.title = workspaceScope.map(function(f) {
         var active = workspaceScopeSelected.length === 0 || workspaceScopeSelected.includes(f.name);
         return (active ? '[x] ' : '[ ] ') + f.name + ' — ' + f.path;
-      }).join('\n');
+      }).join('\\n');
     }
 
     function renderWorkspaceScopeMenu() {
@@ -3226,7 +3245,7 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
             var userMsgs = messagesEl.querySelectorAll('.msg-user .msg-content');
             if (userMsgs.length) {
               var lastUserMsg = userMsgs[userMsgs.length - 1].textContent;
-              vscode.postMessage({ type: 'chat', content: lastUserMsg });
+              vscode.postMessage({ type: 'chat', text: lastUserMsg });
             }
           }
         });
@@ -3553,6 +3572,13 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'responseEnd':
+          // Finalize any tool cards still showing "running…" (e.g. if the model
+          // emitted extra parallel tool calls that weren't individually resolved).
+          messagesEl.querySelectorAll('.tool-status.pending').forEach(function(st) {
+            st.className = 'tool-status ok';
+            st.textContent = 'done';
+          });
+          currentToolEl = null;
           // Add agent badge to completed assistant message
           if (currentAssistantEl) {
             var hdr = currentAssistantEl.querySelector('.msg-header');
@@ -3631,13 +3657,16 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'conversationLoaded':
-          messagesEl.innerHTML = '';
           if (msg.messages && msg.messages.length > 0) {
+            messagesEl.innerHTML = '';
             msg.messages.forEach(function(m) {
               if (m.role === 'user' || m.role === 'assistant') {
                 addMessage(m.role, m.content);
               }
             });
+          } else {
+            // Empty conversation — restore the welcome screen instead of a blank panel.
+            showWelcome();
           }
           currentAssistantEl = null;
           assistantText = '';
@@ -3960,6 +3989,18 @@ export class ChatPanelProvider implements vscode.WebviewViewProvider {
     vscode.postMessage({ type: 'getModes' });
     vscode.postMessage({ type: 'getTools' });
     vscode.postMessage({ type: 'getTokenUsage' });
+
+    // Safety net: if no chat messages are present shortly after load, guarantee the
+    // welcome screen is visible (covers any missed conversationLoaded timing).
+    setTimeout(function() {
+      if (messagesEl && messagesEl.querySelectorAll('.msg').length === 0) {
+        if (!document.getElementById('welcome')) {
+          showWelcome();
+        } else {
+          document.getElementById('welcome').style.display = '';
+        }
+      }
+    }, 400);
   </script>
 </body>
 </html>`;

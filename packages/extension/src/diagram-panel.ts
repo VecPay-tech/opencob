@@ -17,11 +17,17 @@ export class DiagramPanel {
   private static instance: DiagramPanel | undefined;
   private panel: vscode.WebviewPanel;
   private state: DiagramState;
+  private extensionUri: vscode.Uri;
   private disposables: vscode.Disposable[] = [];
 
-  private constructor(panel: vscode.WebviewPanel, state: DiagramState) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    state: DiagramState,
+    extensionUri: vscode.Uri,
+  ) {
     this.panel = panel;
     this.state = state;
+    this.extensionUri = extensionUri;
 
     this.panel.webview.onDidReceiveMessage(
       (msg) => this.handleMessage(msg),
@@ -49,10 +55,11 @@ export class DiagramPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'resources')],
       },
     );
 
-    DiagramPanel.instance = new DiagramPanel(panel, state);
+    DiagramPanel.instance = new DiagramPanel(panel, state, context.extensionUri);
     return DiagramPanel.instance;
   }
 
@@ -226,6 +233,10 @@ export class DiagramPanel {
 
     const nodeLineMapJson = JSON.stringify(nodeLineMap);
     const nodeFileMapJson = JSON.stringify(nodeFileMap);
+    const cspSource = this.panel.webview.cspSource;
+    const mermaidUri = this.panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'resources', 'mermaid.min.js'),
+    );
 
     const typeOptions = availableTypes
       .map(
@@ -267,6 +278,7 @@ export class DiagramPanel {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${cspSource} data: blob:; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline' 'unsafe-eval'; font-src ${cspSource} data:;">
   <title>OpenCob Diagram</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -405,7 +417,7 @@ export class DiagramPanel {
     <span id="status-right">${this.state.filePath.split(/[\\/]/).pop()} • ${currentType.replace(/_/g, ' ')}</span>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script src="${mermaidUri}"></script>
   <script>
     const vscode = acquireVsCodeApi();
     const nodeLineMap = ${nodeLineMapJson};
@@ -445,6 +457,10 @@ export class DiagramPanel {
       noteBkgColor: '#f8fafc',
     };
 
+    if (typeof mermaid === 'undefined') {
+      document.getElementById('diagram-svg').innerHTML =
+        '<pre style="color:#f88;padding:20px;white-space:pre-wrap;">OpenCob: mermaid.js failed to load from the extension resources.</pre>';
+    } else {
     mermaid.initialize({
       startOnLoad: false,
       theme: 'base',
@@ -452,6 +468,7 @@ export class DiagramPanel {
       securityLevel: 'loose',
       flowchart: { htmlLabels: true, curve: 'basis', padding: 12 },
     });
+    }
 
     let currentZoom = ${currentZoom};
     let panX = 20, panY = 20;
@@ -461,6 +478,21 @@ export class DiagramPanel {
 
     function applyTransform() {
       svgContainer.style.transform = 'translate(' + panX + 'px, ' + panY + 'px) scale(' + (currentZoom / 100) + ')';
+    }
+
+    function fitToView() {
+      const svg = svgContainer.querySelector('svg');
+      if (!svg) return;
+      const box = svg.getBBox ? svg.getBBox() : { width: svg.scrollWidth, height: svg.scrollHeight };
+      const cW = container.clientWidth - 40;
+      const cH = container.clientHeight - 40;
+      const fitZoom = Math.min(cW / (box.width || 800), cH / (box.height || 600), 2) * 100;
+      currentZoom = Math.max(20, Math.round(fitZoom / 5) * 5);
+      panX = 20;
+      panY = 20;
+      applyTransform();
+      const sel = document.getElementById('zoom-select');
+      if (sel) sel.value = String(currentZoom);
     }
 
     // Mouse wheel zoom
@@ -564,6 +596,10 @@ export class DiagramPanel {
             }
           });
         });
+
+        // Auto-fit to the viewport on first render so the diagram is visible
+        // immediately without needing to click "Fit".
+        requestAnimationFrame(function() { fitToView(); });
       } catch (e) {
         svgContainer.innerHTML = '<pre style="color:#f88;padding:20px;">Render error: ' + e.message + '</pre>';
       }
@@ -590,17 +626,7 @@ export class DiagramPanel {
       vscode.postMessage({ command: 'switchZoom', zoom: currentZoom });
     });
     document.getElementById('btn-fit').addEventListener('click', () => {
-      const svg = svgContainer.querySelector('svg');
-      if (!svg) return;
-      const svgRect = svg.getBBox ? svg.getBBox() : { width: svg.scrollWidth, height: svg.scrollHeight };
-      const cW = container.clientWidth - 40;
-      const cH = container.clientHeight - 40;
-      const fitZoom = Math.min(cW / (svgRect.width || 800), cH / (svgRect.height || 600), 2) * 100;
-      currentZoom = Math.round(fitZoom / 5) * 5;
-      panX = 20;
-      panY = 20;
-      applyTransform();
-      document.getElementById('zoom-select').value = String(currentZoom);
+      fitToView();
     });
     document.getElementById('btn-export').addEventListener('click', () => {
       const svg = svgContainer.querySelector('svg');
