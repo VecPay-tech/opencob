@@ -21,7 +21,6 @@ import type { AgentEvent, AgentConfig } from './agent-types.js';
 import { DEFAULT_AGENT_CONFIG } from './agent-types.js';
 
 export type { AgentPhase, AgentEvent, AgentConfig } from './agent-types.js';
-const _gitResolver = new GitContextResolver();
 
 export class AgentLoop {
   private llm: LlmAdapter;
@@ -44,6 +43,7 @@ export class AgentLoop {
   private promptBuilder: SystemPromptBuilder;
   private slashHandler: SlashCommandHandler;
   private toolCallLoop: ToolCallLoop;
+  private readonly gitResolver = new GitContextResolver();
 
   constructor(
     llm: LlmAdapter,
@@ -135,7 +135,7 @@ export class AgentLoop {
     // Git-aware rewriting for /review and /create-pr (requires workspaceRoot)
     if (userMessage.trim().startsWith('/')) {
       const [cmd, ...rest] = userMessage.trim().split(/\s+/);
-      const resolved = _gitResolver.resolveSlashCommand(
+      const resolved = this.gitResolver.resolveSlashCommand(
         cmd,
         rest.join(' '),
         this.config.workspaceRoot ?? process.cwd(),

@@ -97,6 +97,9 @@ jobs:
             packages/*/node_modules
           key: modules-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
+      - name: Test all packages
+        run: pnpm test
+
       - name: Test with coverage
         run: pnpm --filter @opencob/core test:coverage
 

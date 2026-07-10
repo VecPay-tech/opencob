@@ -9,6 +9,7 @@ export class GitContextResolver {
   }
 
   resolveGitBranchDiff(branch: string, workspaceRoot: string): string {
+    if (branch !== 'HEAD' && !this.looksLikeBranch(branch)) return '(invalid branch name)';
     try {
       if (branch === 'HEAD') {
         return execSync('git diff HEAD', {
@@ -40,6 +41,7 @@ export class GitContextResolver {
   }
 
   resolveGitPrContext(baseBranch: string, workspaceRoot: string): string {
+    if (!this.looksLikeBranch(baseBranch)) return '(invalid branch name)';
     try {
       const log = execSync(`git log ${baseBranch}..HEAD --oneline`, {
         cwd: workspaceRoot,
