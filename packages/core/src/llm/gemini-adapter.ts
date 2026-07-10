@@ -66,11 +66,15 @@ export class GeminiAdapter implements LlmAdapter {
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }));
-    const systemInstruction = messages.find((m) => m.role === 'system')?.content;
+    const systemContent = messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n');
+    const systemInstruction = systemContent ? { parts: [{ text: systemContent }] } : undefined;
 
     const body = {
       contents,
-      systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
+      systemInstruction,
       generationConfig: { maxOutputTokens: opts?.maxTokens, temperature: opts?.temperature },
     };
 

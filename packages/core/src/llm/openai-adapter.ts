@@ -166,6 +166,9 @@ export class OpenAiAdapter implements LlmAdapter {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
       body: JSON.stringify(body),
     });
+    if (!r.ok) {
+      throw new Error(`OpenAI completions API error: ${r.status}`);
+    }
     const data = (await r.json()) as { choices: Array<{ text: string; finish_reason: string }> };
     return {
       text: data.choices[0]?.text ?? '',

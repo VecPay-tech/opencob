@@ -7,6 +7,12 @@ import type {
   CompletionResponse,
 } from './types.js';
 
+interface AnthropicSseEvent {
+  type: string;
+  delta?: { type: string; text?: string; partial_json?: string };
+  content_block?: { type: string; name: string; id: string };
+}
+
 export interface AnthropicAdapterOpts {
   apiKey: string;
   chatModel?: string;
@@ -141,8 +147,7 @@ export class AnthropicAdapter implements LlmAdapter {
         const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
         if (!dataLine) continue;
         try {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const ev = JSON.parse(dataLine.slice(6)) as any;
+          const ev = JSON.parse(dataLine.slice(6)) as AnthropicSseEvent;
           if (ev.type === 'content_block_delta') {
             if (ev.delta?.type === 'text_delta') yield { type: 'text', text: ev.delta.text };
             if (ev.delta?.type === 'input_json_delta')
