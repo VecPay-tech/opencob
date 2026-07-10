@@ -71,7 +71,18 @@ export interface SectionInfo {
 
 export type FileCategory = 'program' | 'copybook' | 'screen' | 'dds' | 'jcl' | 'other';
 export type Platform = 'mainframe' | 'as400' | 'both';
-export type Language = 'cobol' | 'bms' | 'dds' | 'cl' | 'rpg' | 'asm' | 'jcl' | 'pli' | 'generic';
+export type Language =
+  | 'cobol'
+  | 'bms'
+  | 'dds'
+  | 'cl'
+  | 'rpg'
+  | 'asm'
+  | 'jcl'
+  | 'pli'
+  | 'rexx'
+  | 'natural'
+  | 'generic';
 
 export interface FileTypeInfo {
   extension: string;
@@ -315,6 +326,119 @@ export const FILE_TYPES: Record<string, FileTypeInfo> = {
     platform: 'mainframe',
     language: 'pli',
   },
+
+  // JCL
+  jcl: {
+    extension: 'jcl',
+    label: 'JCL Job',
+    category: 'jcl',
+    platform: 'mainframe',
+    language: 'jcl',
+  },
+  job: {
+    extension: 'job',
+    label: 'JCL Job Stream',
+    category: 'jcl',
+    platform: 'mainframe',
+    language: 'jcl',
+  },
+  proc: {
+    extension: 'proc',
+    label: 'JCL Procedure',
+    category: 'jcl',
+    platform: 'mainframe',
+    language: 'jcl',
+  },
+
+  // REXX
+  rexx: {
+    extension: 'rexx',
+    label: 'REXX Program',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'rexx',
+  },
+  rex: {
+    extension: 'rex',
+    label: 'REXX Program',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'rexx',
+  },
+  exec: {
+    extension: 'exec',
+    label: 'REXX Exec',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'rexx',
+  },
+
+  // NATURAL
+  nsp: {
+    extension: 'nsp',
+    label: 'Natural Program',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+  nsa: {
+    extension: 'nsa',
+    label: 'Natural Subprogram',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+  nsg: {
+    extension: 'nsg',
+    label: 'Natural Global DA',
+    category: 'copybook',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+  nsl: {
+    extension: 'nsl',
+    label: 'Natural Local DA',
+    category: 'copybook',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+  nsh: {
+    extension: 'nsh',
+    label: 'Natural Parameter DA',
+    category: 'copybook',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+  nat: {
+    extension: 'nat',
+    label: 'Natural Source',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'natural',
+  },
+
+  // Assembler (additional extensions beyond asm/rma already present)
+  hlasm: {
+    extension: 'hlasm',
+    label: 'HLASM Program',
+    category: 'program',
+    platform: 'mainframe',
+    language: 'asm',
+  },
+  s: {
+    extension: 's',
+    label: 'Assembler Source',
+    category: 'program',
+    platform: 'both',
+    language: 'asm',
+  },
+  mac: {
+    extension: 'mac',
+    label: 'Assembler Macro',
+    category: 'copybook',
+    platform: 'mainframe',
+    language: 'asm',
+  },
 };
 
 /**
@@ -386,6 +510,14 @@ export const RPG_EXTS = new Set(['rpg', 'rpgle', 'sqlrpgle', 'sqlrpg']);
 
 export const PLI_EXTS = new Set(['pli', 'pl1', 'inc']);
 
+export const JCL_EXTS = new Set(['jcl', 'job', 'proc']);
+
+export const REXX_EXTS = new Set(['rexx', 'rex', 'exec']);
+
+export const NATURAL_EXTS = new Set(['nsp', 'nsa', 'nsg', 'nsl', 'nsh', 'nat']);
+
+export const ASM_EXTS = new Set(['asm', 'hlasm', 's', 'mac']);
+
 /** All legacy file extensions recognized by the diagram engine */
 export const ALL_LEGACY_EXTS = new Set([
   ...COBOL_EXTS,
@@ -394,6 +526,10 @@ export const ALL_LEGACY_EXTS = new Set([
   ...DDS_EXTS,
   ...RPG_EXTS,
   ...PLI_EXTS,
+  ...JCL_EXTS,
+  ...REXX_EXTS,
+  ...NATURAL_EXTS,
+  ...ASM_EXTS,
 ]);
 
 /**

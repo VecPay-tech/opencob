@@ -42,8 +42,18 @@ export class FindingsScanner {
     // Determine file type for rule selection
     const isCobol = /\.(cob|cbl|cpy|sqb|pco|cblcpy|sbc|ccp|ccc|cbe|rmc|obs)$/i.test(filePath);
     const isCl = /\.(clp|clle|cmd)$/i.test(filePath);
+    const isJcl = /\.(jcl|job|proc)$/i.test(filePath);
+    const isRexx = /\.(rexx|rex|exec)$/i.test(filePath);
+    const isNatural = /\.(nsp|nsa|nsg|nsl|nsh|nat)$/i.test(filePath);
+    const isAsm = /\.(asm|hlasm|s|mac)$/i.test(filePath);
     const isLegacy =
-      isCobol || isCl || /\.(rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|dds|pf|lf)$/i.test(filePath);
+      isCobol ||
+      isCl ||
+      isJcl ||
+      isRexx ||
+      isNatural ||
+      isAsm ||
+      /\.(rpg|rpgle|sqlrpgle|sqlrpg|pli|pl1|dds|pf|lf)$/i.test(filePath);
 
     // Generic rules only for modern languages (not COBOL/CL/RPG)
     if (!isLegacy) {
@@ -151,6 +161,14 @@ export class FindingsScanner {
       this.scanCobolRules(filePath, lines, fileFindings);
     } else if (isCl) {
       this.scanClRules(filePath, lines, fileFindings);
+    } else if (isJcl) {
+      this.scanJclRules(filePath, lines, fileFindings);
+    } else if (isRexx) {
+      this.scanRexxRules(filePath, lines, fileFindings);
+    } else if (isNatural) {
+      this.scanNaturalRules(filePath, lines, fileFindings);
+    } else if (isAsm) {
+      this.scanAsmRules(filePath, lines, fileFindings);
     }
 
     this.findings.set(filePath, fileFindings);
@@ -711,6 +729,136 @@ export class FindingsScanner {
           'No MONMSG found — program lacks error handling',
         ),
       );
+    }
+  }
+
+  /** JCL-specific quality rules */
+  private scanJclRules(filePath: string, lines: string[], findings: Finding[]): void {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('//*')) continue;
+
+      if (/DISP=\(NEW,DELETE\)/i.test(line)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'warning',
+            'maintenance',
+            'DD statement deletes dataset on normal termination — verify intent',
+          ),
+        );
+      }
+
+      if (/EXEC\s+PGM=IEFBR14/i.test(line)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'info',
+            'maintenance',
+            'IEFBR14 step — typically used for DD allocation/deletion only',
+          ),
+        );
+      }
+    }
+  }
+
+  /** REXX-specific quality rules */
+  private scanRexxRules(filePath: string, lines: string[], findings: Finding[]): void {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith('/*') || trimmed.startsWith('--')) continue;
+
+      if (/\bINTERPRET\b/i.test(trimmed)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'warning',
+            'security',
+            'INTERPRET executes dynamic code — review for injection risk',
+          ),
+        );
+      }
+
+      if (/\bPARSE\s+EXTERNAL\b/i.test(trimmed)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'info',
+            'maintenance',
+            'PARSE EXTERNAL reads from stdin — ensure caller provides input',
+          ),
+        );
+      }
+    }
+  }
+
+  /** NATURAL-specific quality rules */
+  private scanNaturalRules(filePath: string, lines: string[], findings: Finding[]): void {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith('*')) continue;
+
+      if (/\bDYNAMIC\b/i.test(trimmed)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'warning',
+            'complexity',
+            'DYNAMIC attribute — runtime-sized variable, watch memory allocation',
+          ),
+        );
+      }
+
+      if (/\bHISTOGRAM\b/i.test(trimmed)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'info',
+            'maintenance',
+            'HISTOGRAM performs an index scan — verify the DDM index exists',
+          ),
+        );
+      }
+    }
+  }
+
+  /** Assembler-specific quality rules */
+  private scanAsmRules(filePath: string, lines: string[], findings: Finding[]): void {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith('*') || line.trim() === '') continue;
+
+      if (/\bMVC\s+\d+\([^,]+\),\s*\d+\(/i.test(line)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'warning',
+            'maintenance',
+            'MVC with explicit lengths — verify source and target lengths match',
+          ),
+        );
+      }
+
+      if (/\bBALR\s+14,0\b/i.test(line)) {
+        findings.push(
+          this.createFinding(
+            filePath,
+            i + 1,
+            'info',
+            'maintenance',
+            'BALR 14,0 loads current PSW without branching — typically for base-register setup',
+          ),
+        );
+      }
     }
   }
 

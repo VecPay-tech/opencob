@@ -167,6 +167,20 @@ export {
   type DdsParseResult,
   type DdsScreenMeta,
 } from './legacy/dds-parser.js';
+export { type JclJob, type JclStep, type JclDd, parse as parseJcl } from './legacy/jcl-parser.js';
+export { type RexxProgram, type RexxCall, parse as parseRexx } from './legacy/rexx-parser.js';
+export {
+  type NaturalModuleType,
+  type NaturalProgram,
+  type NaturalVariable,
+  type NaturalDbAccess,
+  parse as parseNatural,
+} from './legacy/natural-parser.js';
+export {
+  type AssemblerProgram,
+  type AsmSection,
+  parse as parseAsm,
+} from './legacy/assembler-parser.js';
 export { createSemanticSearchTool } from './tools/semantic-search.js';
 export { createFindReferencesTool, createShowImpactChainTool } from './tools/legacy-tools.js';
 export { createMultiEditTool } from './tools/multi-edit.js';
