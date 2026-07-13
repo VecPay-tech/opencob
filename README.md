@@ -7,6 +7,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://github.com/mountek/opencob/actions/workflows/ci.yaml"><img src="https://img.shields.io/github/actions/workflow/status/mountek/opencob/ci.yaml?branch=main&label=CI" alt="CI"></a>
+  <a href="https://github.com/mountek/opencob/actions/workflows/codeql.yaml"><img src="https://img.shields.io/github/actions/workflow/status/mountek/opencob/codeql.yaml?branch=main&label=CodeQL" alt="CodeQL"></a>
+  <a href="https://github.com/mountek/opencob/actions/workflows/secret-scan.yaml"><img src="https://img.shields.io/github/actions/workflow/status/mountek/opencob/secret-scan.yaml?branch=main&label=Secret%20Scan" alt="Secret Scan"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=opencob.opencob"><img src="https://img.shields.io/badge/VS%20Code-Marketplace-007ACC" alt="VS Code Marketplace"></a>
 </p>
 
@@ -53,14 +55,31 @@ pnpm test
 ### Development
 
 ```bash
-# Build all packages in watch mode
+# Build all packages
 pnpm build
+
+# Validate formatting, lint, tests, and type safety
+pnpm format:check
+pnpm lint
+pnpm test
+pnpm typecheck
+
+# Validate shared .opencob configuration
+pnpm validate:opencob
 
 # Run the CLI
 cd packages/cli && node dist/index.js
 
 # Launch the VS Code extension
 # Open packages/extension in VS Code → F5 to debug
+```
+
+### Local VSIX Cycle
+
+For fast local extension testing (build + package + install into local VS Code):
+
+```bash
+./scripts/local-vsix-cycle.sh
 ```
 
 ## Project Structure
@@ -73,7 +92,7 @@ opencob/
 │   └── extension/      # VS Code extension (chat, completion, modes)
 ├── spikes/             # Technical spikes and research
 ├── .github/            # CI/CD workflows, issue/PR templates
-└── docs/               # (see opencob-ee for documentation)
+└── docs/               # Nextra documentation site content
 ```
 
 ## Packages
@@ -91,6 +110,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, coding standards,
 ## Security
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Release Notes
+
+- CI, CodeQL, dependency review, and secret scanning run on pull requests and/or main.
+- VSIX packaging runs on main and version tags via `.github/workflows/package-extension.yaml`.
+- Automated npm release flow is gated behind the `ENABLE_RELEASE=true` repository variable.
 
 ## License
 

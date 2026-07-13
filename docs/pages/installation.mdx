@@ -21,12 +21,20 @@ description: Install OpenCob VS Code extension and configure your LLM provider
 Or from the terminal:
 
 ```bash
-code --install-extension opencob-0.1.0.vsix
+code --install-extension opencob-*.vsix
 ```
 
 ## Install from Marketplace
 
-> Coming soon — OpenCob will be published to the VS Code Marketplace.
+Install from the Visual Studio Code Marketplace:
+
+- https://marketplace.visualstudio.com/items?itemName=opencob.opencob
+
+For a fast local build/package/install loop from source:
+
+```bash
+./scripts/local-vsix-cycle.sh
+```
 
 ## Configure LLM Provider
 
@@ -96,15 +104,13 @@ git clone https://github.com/mountek/opencob.git
 cd opencob
 pnpm install
 pnpm build
-cd packages/extension
-pnpm package
-code --install-extension opencob-0.1.0.vsix
+./scripts/local-vsix-cycle.sh
 ```
 
 ## Uninstall
 
 ```bash
-code --uninstall-extension mountek.opencob
+code --uninstall-extension opencob.opencob
 ```
 
 Or via the Extensions sidebar → right-click OpenCob → Uninstall.
