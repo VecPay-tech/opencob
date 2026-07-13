@@ -2,7 +2,7 @@
   "name": "opencob",
   "displayName": "OpenCob",
   "description": "Open-Source AI Coding Assistant — Privacy-First, Legacy-Ready",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "Apache-2.0",
   "publisher": "opencob",
   "icon": "resources/icon.png",
