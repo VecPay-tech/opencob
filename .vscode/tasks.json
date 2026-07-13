@@ -4,7 +4,7 @@
     {
       "label": "OpenCob: Build Package Install (local)",
       "type": "shell",
-      "command": "./scripts/local-vsix-cycle.sh",
+      "command": "bash ./scripts/dev/local-vsix-cycle.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -14,7 +14,7 @@
     {
       "label": "OpenCob: Smoke Reinstall (local)",
       "type": "shell",
-      "command": "./scripts/local-vsix-smoke.sh",
+      "command": "bash ./scripts/dev/local-vsix-smoke.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
