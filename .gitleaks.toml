@@ -1,14 +1,7 @@
 title = "OpenCob gitleaks config"
 
 [allowlist]
-description = "Allow known placeholders and test fixtures"
-regexes = [
-  '''sk-\.\.\.''',
-  '''sk-ant-\.\.\.''',
-  '''AIza\.\.\.''',
-  '''ghp_[A-Z]+[a-z]+''',
-  '''BEGIN RSA PRIVATE KEY'''
-]
+description = "Allow known non-production fixture locations only"
 paths = [
   '''^\.env\.example$''',
   '''^docs/superpowers/plans/''',
