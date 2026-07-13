@@ -45,11 +45,19 @@ jobs:
           path: ${{ steps.vsix.outputs.path }}
           retention-days: 14
 
-      - name: Attach VSIX to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+      - name: Attach VSIX to GitHub Release (tag push)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.vsix.outputs.path }}
-          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attach VSIX to GitHub Release (published release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.vsix.outputs.path }}
+          tag_name: ${{ github.event.release.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
