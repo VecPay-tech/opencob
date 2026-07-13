@@ -114,7 +114,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 ## Release Notes
 
 - CI, CodeQL, dependency review, and secret scanning run on pull requests and/or main.
-- VSIX packaging runs on main and version tags via `.github/workflows/package-extension.yaml`.
+- VSIX packaging runs on main, version tags, and published GitHub releases via `.github/workflows/package-extension.yaml`.
 - Automated npm release flow is gated behind the `ENABLE_RELEASE=true` repository variable.
 
 ## License
