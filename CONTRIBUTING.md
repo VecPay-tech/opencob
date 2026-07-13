@@ -73,7 +73,7 @@ pnpm build && node dist/index.js
 
 # Local extension build/package/install cycle
 cd ../..
-./scripts/local-vsix-cycle.sh
+bash ./scripts/dev/local-vsix-cycle.sh
 ```
 
 ## Making Changes

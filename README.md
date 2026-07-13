@@ -79,7 +79,7 @@ cd packages/cli && node dist/index.js
 For fast local extension testing (build + package + install into local VS Code):
 
 ```bash
-./scripts/local-vsix-cycle.sh
+bash ./scripts/dev/local-vsix-cycle.sh
 ```
 
 ## Project Structure
