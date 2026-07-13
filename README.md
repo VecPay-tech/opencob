@@ -29,6 +29,12 @@ OpenCob is a **free, open-source AI coding assistant** that runs entirely on you
 - **Bring Your Own Model** — Use any GGUF, ONNX, or API-compatible LLM.
 - **VS Code extension + CLI** — Chat panel, inline completion, and headless terminal mode.
 
+## Extension Preview
+
+<p align="center">
+  <img src="assets/screenshots/opencob-plugin-ui.png" alt="OpenCob VS Code extension screenshot" width="1100" />
+</p>
+
 ## Quick Start
 
 ### Prerequisites
