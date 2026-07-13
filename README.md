@@ -1,4 +1,4 @@
-# OpenCob Community Edition
+# OpenCob
 
 <p align="center">
   <strong>Open-Source Agentic AI Coding Assistant for Legacy & Modern Development</strong>
