@@ -8,6 +8,7 @@ For contributor documentation, see the root-level files:
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — Development setup, coding standards, PR process
 - [SECURITY.md](../SECURITY.md) — Vulnerability reporting policy
 - [AGENTS.md](../AGENTS.md) — AI agent guardrails
+- [docs/pages](./pages) — User-facing docs pages (Nextra)
 
 ## Architecture
 
@@ -49,6 +50,13 @@ The Enterprise Edition documentation lives in the `opencob_ee` repository under 
 - `FEATURE_SPEC.md` — CE feature specifications
 - `FEATURE_SPEC_EE.md` — EE feature specifications
 - `IMPLEMENTATION_STATUS.md` — Build progress tracker
+
+## CI and Release Docs Pointers
+
+- `.github/workflows/ci.yaml` — Build/test/lint/typecheck + `.opencob` validation
+- `.github/workflows/package-extension.yaml` — VSIX packaging and release attachment
+- `.github/workflows/secret-scan.yaml` — gitleaks-based secret scanning
+- `.github/workflows/codeql.yaml` — code scanning analysis
 
 ## Spikes
 

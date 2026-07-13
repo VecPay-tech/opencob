@@ -70,6 +70,10 @@ cd packages/extension
 # CLI
 cd packages/cli
 pnpm build && node dist/index.js
+
+# Local extension build/package/install cycle
+cd ../..
+./scripts/local-vsix-cycle.sh
 ```
 
 ## Making Changes
@@ -211,8 +215,8 @@ By submitting a pull request, you agree that your contributions are licensed und
 
 ## Questions?
 
-- Open a [GitHub Discussion](https://github.com/opencob/opencob/discussions)
-- File an [Issue](https://github.com/opencob/opencob/issues)
+- Open a [GitHub Discussion](https://github.com/mountek/opencob/discussions)
+- File an [Issue](https://github.com/mountek/opencob/issues)
 
 ---
 
