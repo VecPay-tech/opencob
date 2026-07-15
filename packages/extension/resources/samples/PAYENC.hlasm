@@ -1,0 +1,54 @@
+*        PAYENC - PIN ENCRYPTION ROUTINE (HLASM)
+*        Accepts PIN block and working key, returns
+*        encrypted PIN using XOR + DES substitution.
+         TITLE 'PAYENC - PIN ENCRYPTION ROUTINE'
+PAYENC   CSECT
+PAYENC   AMODE 31
+PAYENC   RMODE ANY
+*
+         USING  *,R15
+         SAVE   (14,12),,PAYENC_SA
+         LR     R12,R15
+         DROP   R15
+         USING  PAYENC,R12
+*
+         LA     R13,SAVEAREA
+         ST     R13,8(,R14)
+*
+*        Load parameters
+         L      R2,0(,R1)              Address of PIN block (8 bytes)
+         L      R3,4(,R1)              Address of working key (8 bytes)
+         L      R4,8(,R1)              Address of output buffer (8 bytes)
+*
+*        XOR PIN block with working key byte by byte
+         MVC    PINBUF,0(R2)
+         MVC    KEYBUF,0(R3)
+*
+         LA     R5,PINBUF
+         LA     R6,KEYBUF
+         LA     R7,8
+*
+XORLOOP  DS     0H
+         XC     0(1,R5),0(R6)
+         LA     R5,1(,R5)
+         LA     R6,1(,R6)
+         BCT    R7,XORLOOP
+*
+*        Call DES substitution routine
+         LA     R1,PARMLIST
+         ST     R5,PARMLIST
+         ST     R4,PARMLIST+4
+         L      R15,=V(DESSUB)
+         BALR   R14,R15
+*
+RETURN   DS     0H
+         L      R13,4(,R13)
+         RETURN (14,12),,RC=0
+*
+SAVEAREA DS     18F
+PINBUF   DS     D
+KEYBUF   DS     D
+PARMLIST DS     2A
+*
+         LTORG
+         END    PAYENC
