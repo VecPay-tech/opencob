@@ -155,7 +155,7 @@
         "title": "OpenCob: Literate Coding"
       },
       {
-        "command": "OpenCob.openSamples",
+        "command": "opencob.openSamples",
         "title": "OpenCob: Open Sample Files",
         "icon": "$(beaker)"
       }
@@ -264,20 +264,20 @@
     ],
     "walkthroughs": [
       {
-        "id": "opencob.getStarted",
+        "id": "opencob.gettingStarted",
         "title": "Get Started with OpenCob",
         "description": "Explore AI-powered diagram generation on real legacy and modern code samples.",
         "steps": [
           {
             "id": "opencob.openSamples",
             "title": "Try Diagram Generation",
-            "description": "Open the built-in sample files and generate your first diagram.\n\n[Open Sample Files](command:OpenCob.openSamples)\n\nOnce a file opens, click the **$(type-hierarchy)** icon in the editor title bar, or right-click and choose **OpenCob: Generate Diagram**.",
+            "description": "Open the built-in sample files and generate your first diagram.\n\n[Open Sample Files](command:opencob.openSamples)\n\nOnce a file opens, click the **$(type-hierarchy)** icon in the editor title bar, or right-click and choose **OpenCob: Generate Diagram**.",
             "media": {
               "image": "resources/opencob-mascot.svg",
               "altText": "OpenCob mascot"
             },
             "completionEvents": [
-              "onCommand:OpenCob.openSamples"
+              "onCommand:opencob.openSamples"
             ]
           }
         ]

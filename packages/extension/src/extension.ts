@@ -11,6 +11,7 @@ import { EditsPanelProvider } from './edits/edits-panel-provider.js';
 import { SettingsPanelProvider } from './settings/settings-panel-provider.js';
 import { registerChatParticipant } from './chat/chat-participant.js';
 import { DiagramPanel } from './diagram-panel.js';
+import { openSamplesCommand } from './commands/open-samples.js';
 
 import { EEClient } from './enterprise/ee-client.js';
 import {
@@ -1216,25 +1217,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Command: Open Sample Files — adds bundled samples folder to workspace
   context.subscriptions.push(
-    vscode.commands.registerCommand('OpenCob.openSamples', () => {
-      const samplesPath = path.join(context.extensionUri.fsPath, 'resources', 'samples');
-      const samplesUri = vscode.Uri.file(samplesPath);
-      const existing = vscode.workspace.workspaceFolders ?? [];
-      const alreadyAdded = existing.some((f) => f.uri.fsPath === samplesUri.fsPath);
-      if (alreadyAdded) {
-        vscode.window.showInformationMessage(
-          'OpenCob: Sample files are already in your workspace.',
-        );
-        return;
-      }
-      vscode.workspace.updateWorkspaceFolders(existing.length, null, {
-        uri: samplesUri,
-        name: 'OpenCob Samples',
-      });
-      vscode.window.showInformationMessage(
-        'OpenCob: Sample files added. Open any file and click $(type-hierarchy) to generate a diagram.',
-      );
-    }),
+    vscode.commands.registerCommand('opencob.openSamples', () => openSamplesCommand(context)),
   );
 
   // Disconnect MCP servers on deactivation
