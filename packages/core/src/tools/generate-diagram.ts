@@ -35,6 +35,10 @@ import {
   PLI_EXTS,
   BMS_EXTS,
   DDS_EXTS,
+  JCL_EXTS,
+  REXX_EXTS,
+  NATURAL_EXTS,
+  ASM_EXTS,
   classifyExtension,
   getAvailableDiagramTypes,
 } from './diagram-types.js';
@@ -470,6 +474,14 @@ function generateLegacyDiagram(
     data = generateBmsDiagram(fullPath, content, diagramType);
   } else if (DDS_EXTS.has(ext)) {
     data = generateDdsDiagram(fullPath, content, diagramType);
+  } else if (JCL_EXTS.has(ext)) {
+    data = generateJclDiagram(fullPath, content, diagramType);
+  } else if (REXX_EXTS.has(ext)) {
+    data = generateRexxDiagram(fullPath, content, diagramType, sectionId);
+  } else if (NATURAL_EXTS.has(ext)) {
+    data = generateNaturalDiagram(fullPath, content, diagramType);
+  } else if (ASM_EXTS.has(ext)) {
+    data = generateAsmDiagram(fullPath, content, diagramType, sectionId);
   }
 
   if (!data || (data.nodes.length === 0 && !data.data)) {
@@ -2864,6 +2876,14 @@ export function generateDiagramFromContent(
     data = generateBmsDiagram(syntheticPath, content, legacyType);
   } else if (DDS_EXTS.has(ext)) {
     data = generateDdsDiagram(syntheticPath, content, legacyType);
+  } else if (JCL_EXTS.has(ext)) {
+    data = generateJclDiagram(syntheticPath, content, legacyType);
+  } else if (REXX_EXTS.has(ext)) {
+    data = generateRexxDiagram(syntheticPath, content, legacyType, sectionId);
+  } else if (NATURAL_EXTS.has(ext)) {
+    data = generateNaturalDiagram(syntheticPath, content, legacyType);
+  } else if (ASM_EXTS.has(ext)) {
+    data = generateAsmDiagram(syntheticPath, content, legacyType, sectionId);
   }
 
   if (!data || (data.nodes.length === 0 && !data.data)) {
@@ -2927,6 +2947,402 @@ export function generateDiagramFromContent(
   };
   diagramCache.set(content, requestedType, mermaid, metadata, sectionId, direction);
   return { success: true, content: mermaid, metadata };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  JCL Diagram Generators (z/OS Job Control Language)
+// ══════════════════════════════════════════════════════════════
+
+function generateJclDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateJclDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateJclDependencyMap(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const jobName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(jobName)}`;
+  nodes.push({ id: sourceId, label: jobName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // Match EXEC PGM=pgmname and EXEC PROC=procname
+  const execPgmRe = /\/\/\w+\s+EXEC\s+PGM=(\w+)/i;
+  const execProcRe = /\/\/\w+\s+EXEC\s+(?:PROC=)?(\w+)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('//*')) continue; // Comment
+
+    let m = execPgmRe.exec(line);
+    if (m) {
+      const target = m[1].toUpperCase();
+      const nid = `pgm_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'EXEC PGM', line: i + 1 });
+      continue;
+    }
+
+    m = execProcRe.exec(line);
+    if (m) {
+      const target = m[1].toUpperCase();
+      // Skip JCL control keywords
+      if (['JOB', 'DD', 'SET', 'IF', 'THEN', 'ELSE', 'ENDIF', 'INCLUDE', 'OUTPUT'].includes(target))
+        continue;
+      const nid = `proc_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'EXEC', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REXX Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateRexxDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+  sectionId?: number,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'control_flow':
+      return generateRexxControlFlow(content, filePath, sectionId);
+    case 'call_graph':
+      return generateRexxCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateRexxDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateRexxControlFlow(
+  content: string,
+  filePath: string,
+  _sectionId?: number,
+): DiagramData | null {
+  const lines = content.split('\n');
+  const stripped = lines.map((l) => l.trimEnd());
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const flowData = parseClControlFlow(stripped, 1, programName);
+  if (flowData.nodes.length === 0) return null;
+  return {
+    nodes: flowData.nodes,
+    edges: flowData.edges,
+    diagram_type: 'control_flow',
+    data: flowData,
+  };
+}
+
+function generateRexxCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALL proc / CALL value(...)
+  const callRe = /CALL\s+(\w+)/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callRe.exec(lines[i])) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateRexxDependencyMap(content: string, filePath: string): DiagramData | null {
+  // REXX typically has no COPY, but may CALL external programs
+  return generateRexxCallGraph(content, filePath);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NATURAL Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateNaturalDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'call_graph':
+      return generateNaturalCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateNaturalDependencyMap(content, filePath);
+    case 'field_hierarchy':
+    case 'record_layout':
+      return generateNaturalFieldHierarchy(content);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateNaturalCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALLNAT 'program' or CALL 'program' or PERFORM subroutine
+  const callnatRe = /CALLNAT\s+['"]?(\w+)/gi;
+  const callRe = /\bCALL\s+['"](\w+)['"]/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    callnatRe.lastIndex = 0;
+    callRe.lastIndex = 0;
+
+    let m: RegExpExecArray | null;
+    while ((m = callnatRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `cn_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALLNAT', line: i + 1 });
+    }
+    while ((m = callRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateNaturalDependencyMap(content: string, filePath: string): DiagramData | null {
+  return generateNaturalCallGraph(content, filePath);
+}
+
+function generateNaturalFieldHierarchy(content: string): DiagramData | null {
+  // NATURAL DEFINE DATA block
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const defineRe = /^\s+(\d+)\s+#?([\w-]+)\s+\(([^)]+)\)/;
+  const lines = content.split('\n');
+  let idx = 0;
+  const stack: Array<{ level: number; id: string }> = [];
+  let inDefine = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const upper = lines[i].toUpperCase().trim();
+    if (upper.startsWith('DEFINE DATA')) {
+      inDefine = true;
+      continue;
+    }
+    if (upper === 'END-DEFINE') {
+      inDefine = false;
+      continue;
+    }
+    if (!inDefine) continue;
+
+    const m = defineRe.exec(lines[i]);
+    if (m) {
+      const lvl = parseInt(m[1], 10);
+      const name = m[2].toUpperCase();
+      const type = m[3];
+      const nid = `d${idx}`;
+      nodes.push({
+        id: nid,
+        label: `${name} (${type})`,
+        type: lvl === 1 ? 'record' : 'field',
+        level: lvl,
+        startLine: i + 1,
+      });
+      while (stack.length > 0 && stack[stack.length - 1].level >= lvl) stack.pop();
+      if (stack.length > 0) edges.push({ source: stack[stack.length - 1].id, target: nid });
+      stack.push({ level: lvl, id: nid });
+      idx++;
+    }
+  }
+
+  return nodes.length > 0 ? { nodes, edges } : null;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HLASM / Assembler Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateAsmDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+  sectionId?: number,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'control_flow':
+      return generateAsmControlFlow(content, filePath, sectionId);
+    case 'call_graph':
+      return generateAsmCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateAsmDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateAsmControlFlow(
+  content: string,
+  filePath: string,
+  _sectionId?: number,
+): DiagramData | null {
+  const lines = content.split('\n');
+  const stripped = lines.map((l) => l.trimEnd());
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const flowData = parseClControlFlow(stripped, 1, programName);
+  if (flowData.nodes.length === 0) {
+    // Fallback: build a simple node list from CSECT/DSECT/DS labels
+    const nodes: DiagramNode[] = [];
+    const edges: DiagramEdge[] = [];
+    const programId = `src_${sanitizeId(programName)}`;
+    nodes.push({ id: programId, label: programName, type: 'source', startLine: 0 });
+    const labelRe = /^(\w+)\s+(?:DS|DC|CSECT|DSECT|EQU)/i;
+    let idx = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const m = labelRe.exec(lines[i]);
+      if (m) {
+        const nid = `l${idx}`;
+        nodes.push({ id: nid, label: m[1], type: 'paragraph', startLine: i + 1 });
+        if (idx > 0) edges.push({ source: `l${idx - 1}`, target: nid, edgeType: 'fallthrough' });
+        idx++;
+      }
+    }
+    return nodes.length > 1 ? { nodes, edges } : null;
+  }
+  return {
+    nodes: flowData.nodes,
+    edges: flowData.edges,
+    diagram_type: 'control_flow',
+    data: flowData,
+  };
+}
+
+function generateAsmCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALL macro: CALL label or BAL/BALR Rx,label or L Rx,=V(label)
+  const callRe = /\bBAL[R]?\s+\w+,(\w+)|=V\((\w+)\)|\bCALL\s+(\w+)/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('*')) continue; // Comment
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callRe.exec(lines[i])) !== null) {
+      const target = (m[1] ?? m[2] ?? m[3])?.toUpperCase();
+      if (!target) continue;
+      // Skip registers and common labels
+      if (/^R\d+$/.test(target) || ['R14', 'R15'].includes(target)) continue;
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateAsmDependencyMap(content: string, filePath: string): DiagramData | null {
+  // COPY maclibs and MACRO references
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  const copyRe = /\bCOPY\s+(\w+)/gi;
+  const macroRe = /^\s+(\w+)\s+MACRO/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    copyRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = copyRe.exec(lines[i])) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `cp_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'copybook', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'COPY', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
 }
 
 /**
