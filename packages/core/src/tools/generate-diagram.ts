@@ -2983,7 +2983,7 @@ function generateJclDependencyMap(content: string, filePath: string): DiagramDat
   const seen = new Set<string>();
   // Match EXEC PGM=pgmname and EXEC PROC=procname
   const execPgmRe = /\/\/\w+\s+EXEC\s+PGM=(\w+)/i;
-  const execProcRe = /\/\/\w+\s+EXEC\s+(?:PROC=)?(\w+)/i;
+  const execProcRe = /\/\/\w+\s+EXEC\s+PROC=(\w+)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -3342,7 +3342,11 @@ function generateAsmDependencyMap(content: string, filePath: string): DiagramDat
     }
   }
 
-  return nodes.length > 1 ? { nodes, edges } : null;
+  if (nodes.length <= 1) {
+    return generateAsmCallGraph(content, filePath);
+  }
+
+  return { nodes, edges };
 }
 
 /**
