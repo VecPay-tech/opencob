@@ -3214,7 +3214,44 @@ function generateNaturalCallGraph(content: string, filePath: string): DiagramDat
 }
 
 function generateNaturalDependencyMap(content: string, filePath: string): DiagramData | null {
-  return generateNaturalCallGraph(content, filePath);
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  const callnatRe = /CALLNAT\s+['"]?(\w+)/gi;
+  const callRe = /\bCALL\s+['"](\w+)['"]/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    callnatRe.lastIndex = 0;
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callnatRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `dep_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        // type 'dependency' → rectangle node, visually distinct from 'call' subroutine shape
+        nodes.push({ id: nid, label: target, type: 'dependency', startLine: i + 1 });
+        edges.push({ source: sourceId, target: nid }); // no label — static dependency, not call flow
+      }
+    }
+    while ((m = callRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `dep_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'dependency', startLine: i + 1 });
+        edges.push({ source: sourceId, target: nid });
+      }
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
 }
 
 function generateNaturalFieldHierarchy(content: string): DiagramData | null {
