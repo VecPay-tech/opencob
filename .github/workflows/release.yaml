@@ -37,9 +37,21 @@ jobs:
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
-          publish: pnpm -r publish --access public
+          publish: |
+            if [ "${ENABLE_NPM_PUBLISH}" != "true" ]; then
+              echo "ENABLE_NPM_PUBLISH is not true; skipping npm publish."
+              exit 0
+            fi
+
+            if [ -z "${NPM_TOKEN}" ]; then
+              echo "NPM_TOKEN is missing; skipping npm publish."
+              exit 0
+            fi
+
+            pnpm -r publish --access public
           commit: 'chore(release): version packages'
           title: 'chore(release): version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          ENABLE_NPM_PUBLISH: ${{ vars.ENABLE_NPM_PUBLISH }}
