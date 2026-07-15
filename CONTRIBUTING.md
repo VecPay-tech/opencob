@@ -215,8 +215,8 @@ By submitting a pull request, you agree that your contributions are licensed und
 
 ## Questions?
 
-- Open a [GitHub Discussion](https://github.com/mountek/opencob/discussions)
-- File an [Issue](https://github.com/mountek/opencob/issues)
+- Open a [GitHub Discussion](https://github.com/VecPay-tech/opencob/discussions)
+- File an [Issue](https://github.com/VecPay-tech/opencob/issues)
 
 ---
 

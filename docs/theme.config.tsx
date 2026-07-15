@@ -4,9 +4,9 @@ import { DocsThemeConfig } from 'nextra-theme-docs';
 const config: DocsThemeConfig = {
   logo: <span style={{ fontWeight: 700 }}>🌿 OpenCob</span>,
   project: {
-    link: 'https://github.com/mountek/opencob',
+    link: 'https://github.com/VecPay-tech/opencob',
   },
-  docsRepositoryBase: 'https://github.com/mountek/opencob/tree/main/docs',
+  docsRepositoryBase: 'https://github.com/VecPay-tech/opencob/tree/main/docs',
   footer: {
     text: '© 2024-2026 OpenCob Contributors. MIT License.',
   },
