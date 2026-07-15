@@ -4,7 +4,14 @@
     {
       "label": "OpenCob: Build Package Install (local)",
       "type": "shell",
-      "command": "bash ./scripts/dev/local-vsix-cycle.sh",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\dev\\local-vsix-cycle.ps1"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -14,7 +21,14 @@
     {
       "label": "OpenCob: Smoke Reinstall (local)",
       "type": "shell",
-      "command": "bash ./scripts/dev/local-vsix-smoke.sh",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\dev\\local-vsix-smoke.ps1"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
