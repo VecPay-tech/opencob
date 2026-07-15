@@ -164,7 +164,7 @@
       "editor/title": [
         {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd|jcl|job|proc|map|rexx|rex|nsp|nsa|nat|hlasm|asm|s|ts|tsx|js|mjs|py|java|go)/",
           "group": "navigation"
         },
         {
@@ -176,7 +176,7 @@
       "editor/context": [
         {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd|jcl|job|proc|map|rexx|rex|nsp|nsa|nat|hlasm|asm|s|ts|tsx|js|mjs|py|java|go)/",
           "group": "OpenCob"
         },
         {

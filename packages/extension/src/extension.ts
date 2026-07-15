@@ -957,14 +957,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ext = path.extname(filePath).slice(1).toLowerCase();
       const info = classifyExtension(ext);
 
-      if (!info) {
+      // Known modern language extensions supported by generateDiagramFromContent
+      const MODERN_EXTS = new Set(['ts', 'tsx', 'js', 'mjs', 'py', 'java', 'go']);
+
+      if (!info && !MODERN_EXTS.has(ext)) {
         vscode.window.showWarningMessage(
           `OpenCob: Unsupported file type ".${ext}" for diagram generation.`,
         );
         return;
       }
 
-      const available = getAvailableDiagramTypes(ext);
+      const available = info
+        ? getAvailableDiagramTypes(ext)
+        : ['class', 'call-graph', 'dependency', 'structure'];
       if (available.length === 0) {
         vscode.window.showWarningMessage(
           `OpenCob: No diagram types available for ".${ext}" files.`,
@@ -977,8 +982,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         description: getDiagramDescription(t),
       }));
 
+      const categoryLabel = info ? info.category : 'modern';
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Select diagram type for ${path.basename(filePath)} (${info.category})`,
+        placeHolder: `Select diagram type for ${path.basename(filePath)} (${categoryLabel})`,
       });
       if (!selected) return;
 

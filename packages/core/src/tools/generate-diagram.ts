@@ -1147,33 +1147,77 @@ function generateRpgCallGraph(
 
   // Extract CALLP, CALL, and bare procedure calls from RPG ILE free format
   // Matches: CALLP proc(...), CALL proc(...), or just proc(...)
-  const callRegex = /(?:CALLP?\s+)?(?<![a-zA-Z0-9_-])([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/gi;
+  // The negative lookbehind (?<![a-zA-Z0-9_%]) prevents matching BIFs like %foo(
+  const callRegex = /(?:CALLP?\s+)?(?<![a-zA-Z0-9_%])([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/gi;
   const lines = content.split('\n');
   const seen = new Set<string>();
+
+  // RPG ILE keywords, opcodes, and declaration keywords that appear before '(' but are NOT calls
+  const RPG_KEYWORDS = new Set([
+    // Control structures
+    'IF',
+    'FOR',
+    'DOW',
+    'DOU',
+    'WHEN',
+    'EVAL',
+    'RETURN',
+    'NOT',
+    'AND',
+    'OR',
+    'SELECT',
+    'CASE',
+    // Declaration opcodes that accept parameters in parens
+    'DFTACTGRP',
+    'ACTGRP',
+    'OPTION',
+    'EXTNAME',
+    'LIKEDS',
+    'USAGE',
+    'KEYED',
+    'PREFIX',
+    'QUALIFIED',
+    'BASED',
+    'DIM',
+    'CTDATA',
+    'PERRCD',
+    'FROMFILE',
+    'TOFILE',
+    'OFLIND',
+    'INDDS',
+    'DISK',
+    'CHAR',
+    'PACKED',
+    // Common built-in function names without % that might leak through
+    'SQRT',
+    'ABS',
+    'INT',
+    'INTH',
+    'REM',
+    'DIV',
+    'MOD',
+    // DCL keywords
+    'DCL',
+    'END',
+    'BEGSR',
+    'ENDSR',
+    'DCLDS',
+    'ENDDS',
+    'DCLPR',
+    'ENDPR',
+  ]);
 
   for (let i = 0; i < lines.length; i++) {
     callRegex.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = callRegex.exec(lines[i])) !== null) {
       const target = m[1].toUpperCase();
-      // Skip language keywords and control structures
-      if (
-        [
-          'IF',
-          'FOR',
-          'DOW',
-          'DOU',
-          'WHEN',
-          'EVAL',
-          'RETURN',
-          'NOT',
-          'AND',
-          'OR',
-          'SELECT',
-          'CASE',
-        ].includes(target)
-      )
-        continue;
+      // Skip language keywords, opcodes, and declaration keywords
+      if (RPG_KEYWORDS.has(target)) continue;
+      // Also skip if match position is immediately preceded by % (BIF guard for engines
+      // that don't fully support variable-width lookbehind at all match positions)
+      const matchStart = m.index;
+      if (matchStart > 0 && lines[i][matchStart - 1] === '%') continue;
       const nid = `c_${sanitizeId(target)}`;
       if (!seen.has(nid)) {
         seen.add(nid);
