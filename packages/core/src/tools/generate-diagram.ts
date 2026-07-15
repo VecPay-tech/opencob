@@ -3326,7 +3326,6 @@ function generateAsmDependencyMap(content: string, filePath: string): DiagramDat
   const lines = content.split('\n');
   const seen = new Set<string>();
   const copyRe = /\bCOPY\s+(\w+)/gi;
-  const macroRe = /^\s+(\w+)\s+MACRO/gi;
 
   for (let i = 0; i < lines.length; i++) {
     copyRe.lastIndex = 0;
