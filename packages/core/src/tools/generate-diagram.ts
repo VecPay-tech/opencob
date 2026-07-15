@@ -358,7 +358,12 @@ function getActuallyAvailableDiagrams(
   for (const dtype of candidateTypes) {
     switch (dtype) {
       case 'call_graph':
-        if (/CALL\s+['"]?\w/i.test(content) || /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content)) {
+        if (
+          /CALL\s+['"]?\w/i.test(content) ||
+          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content) ||
+          /CALLP?\s+\w+\s*\(/i.test(content) ||
+          /(?:dcl-proc\s+\w+|end-proc)/i.test(content)
+        ) {
           available.push(dtype);
         }
         break;
@@ -1128,8 +1133,9 @@ function generateRpgCallGraph(
   const sourceId = `src_${sanitizeId(programName)}`;
   nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
 
-  // Extract CALLP and CALL from content
-  const callRegex = /CALLP?\s+(\w+)\s*\(/gi;
+  // Extract CALLP, CALL, and bare procedure calls from RPG ILE free format
+  // Matches: CALLP proc(...), CALL proc(...), or just proc(...)
+  const callRegex = /(?:CALLP?\s+)?(?<![a-zA-Z0-9_-])([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/gi;
   const lines = content.split('\n');
   const seen = new Set<string>();
 
@@ -1138,7 +1144,24 @@ function generateRpgCallGraph(
     let m: RegExpExecArray | null;
     while ((m = callRegex.exec(lines[i])) !== null) {
       const target = m[1].toUpperCase();
-      if (['IF', 'FOR', 'DOW', 'DOU', 'WHEN', 'EVAL', 'RETURN'].includes(target)) continue;
+      // Skip language keywords and control structures
+      if (
+        [
+          'IF',
+          'FOR',
+          'DOW',
+          'DOU',
+          'WHEN',
+          'EVAL',
+          'RETURN',
+          'NOT',
+          'AND',
+          'OR',
+          'SELECT',
+          'CASE',
+        ].includes(target)
+      )
+        continue;
       const nid = `c_${sanitizeId(target)}`;
       if (!seen.has(nid)) {
         seen.add(nid);

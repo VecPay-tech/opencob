@@ -22,11 +22,7 @@ end-ds;
 dcl-ds authRec extname('AUTHHIST') qualified;
 end-ds;
 
-dcl-s isValid     ind;
-dcl-s isOverLimit ind;
-dcl-s authCode    char(6);
-
-// Entry point: processes authorization request and posts result
+// Entry point: returns auth code on approval, blanks on decline.
 dcl-proc authorize export;
   dcl-pi *n;
     request  likeds(authRequest);
@@ -34,30 +30,23 @@ dcl-proc authorize export;
     decFlag  ind;
   end-pi;
 
-  callp CARDCHECK(request.cardNo : request.expiry : isValid);
-
-  if not isValid;
+  if not validateCard(request.cardNo : request.expiry);
     authOut  = *blanks;
     decFlag  = *on;
-    callp POSTDECLN(request : authOut);
+    postDecline(request);
     return;
   endif;
 
-  callp LIMITCHK(request.cardNo : request.amount : isOverLimit);
-
-  if isOverLimit;
+  if checkDailyLimit(request.cardNo : request.amount);
     authOut  = *blanks;
     decFlag  = *on;
-    callp POSTDECLN(request : authOut);
+    postDecline(request);
     return;
   endif;
 
-  callp AUTHGEN(request.cardNo : request.amount : authCode);
-
+  authOut  = generateAuthCode(request.cardNo : request.amount);
   decFlag  = *off;
-  callp POSTAPPR(request : authCode);
-
-  authOut  = authCode;
+  postApproval(request : authOut);
 end-proc;
 
 dcl-proc validateCard;
@@ -108,7 +97,7 @@ dcl-proc postApproval;
   authRec.authCode = authCode;
   authRec.status   = 'A';
   authRec.tstamp   = %timestamp();
-  write AUTHHISTR authRec;
+  write AUTHHIST authRec;
 end-proc;
 
 dcl-proc postDecline;
@@ -121,5 +110,5 @@ dcl-proc postDecline;
   authRec.authCode = *blanks;
   authRec.status   = 'D';
   authRec.tstamp   = %timestamp();
-  write AUTHHISTR authRec;
+  write AUTHHIST authRec;
 end-proc;
