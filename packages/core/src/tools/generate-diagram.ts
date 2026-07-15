@@ -3442,6 +3442,15 @@ function generateModernMermaidFromContent(
         const depId = sanitizeId(`dep_${dep}`);
         lines.push(`  ${nodeId} --> ${depId}["${dep}"]`);
       }
+      // Go: import "pkg" or import ( "pkg1"\n "pkg2" )
+      if (extension === 'go') {
+        const goImportRe = /^\s+"([^"]+)"/gm;
+        while ((match = goImportRe.exec(content)) !== null) {
+          const dep = match[1];
+          const depId = sanitizeId(`dep_${dep}`);
+          lines.push(`  ${nodeId} --> ${depId}["${dep}"]`);
+        }
+      }
       return '```mermaid\n' + lines.join('\n') + '\n```';
     }
     case 'class': {
@@ -3524,6 +3533,55 @@ function generateModernMermaidFromContent(
           lines.push(`  class ${className}`);
         }
       }
+      // Go: type Foo struct { fields } and type Foo interface { methods }
+      if (extension === 'go') {
+        const goTypeRe = /\btype\s+(\w+)\s+(struct|interface)\b/g;
+        while ((match = goTypeRe.exec(content)) !== null) {
+          const typeName = match[1];
+          const kind = match[2];
+          const bodyStart = content.indexOf('{', match.index + match[0].length);
+          const members: string[] = [];
+          if (bodyStart !== -1) {
+            let depth = 0;
+            let bi = bodyStart;
+            const goBodyLines: string[] = [];
+            let goBodyStarted = false;
+            while (bi < content.length) {
+              const ch = content[bi];
+              if (ch === '{') {
+                if (!goBodyStarted) goBodyStarted = true;
+                depth++;
+              } else if (ch === '}') {
+                depth--;
+                if (goBodyStarted && depth === 0) break;
+              } else if (ch === '\n' && goBodyStarted && depth === 1) {
+                goBodyLines.push('');
+              }
+              if (ch !== '\n' && goBodyStarted && depth === 1) {
+                if (goBodyLines.length === 0) goBodyLines.push('');
+                goBodyLines[goBodyLines.length - 1] += ch;
+              }
+              bi++;
+            }
+            const fieldRe = kind === 'struct' ? /^\s+(\w+)\s+([\w*[\].]+)/ : /^\s+(\w+)\s*\(/;
+            for (const bl of goBodyLines) {
+              if (members.length >= 10) break;
+              const m2 = fieldRe.exec(bl);
+              if (m2) {
+                members.push(kind === 'struct' ? `    +${m2[2]} ${m2[1]}` : `    +${m2[1]}()`);
+              }
+            }
+          }
+          if (members.length > 0) {
+            lines.push(`  class ${typeName} {`);
+            for (const m of members) lines.push(m);
+            lines.push(`  }`);
+          } else {
+            lines.push(`  class ${typeName}`);
+          }
+        }
+      }
+
       return lines.length > 1
         ? '```mermaid\n' + lines.join('\n') + '\n```'
         : '```mermaid\nclassDiagram\n  class NoClassesFound\n```';
@@ -3534,19 +3592,18 @@ function generateModernMermaidFromContent(
     default: {
       const lines = ['graph LR'];
       const contentRead = read(files[0]);
-      const funcRegex =
-        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
       let match;
 
-      // First pass: collect all function names and their body start positions
+      // First pass: collect all function names and their body start positions.
+      // Groups: 1=TS/JS fn, 2=TS/JS arrow, 3=Python def,
+      //         4=Go receiver method, 5=Go/other free func
+      const funcRegex =
+        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+\(\w+\s+\*?\w+\)\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
       const funcs: Array<{ name: string; bodyStart: number }> = [];
       const funcNameSet = new Set<string>();
       const allFuncMatches: RegExpExecArray[] = [];
-      // Reset and collect
-      const funcRegex2 =
-        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
-      while ((match = funcRegex2.exec(contentRead)) !== null) {
-        const funcName = match[1] ?? match[2] ?? match[3] ?? match[4];
+      while ((match = funcRegex.exec(contentRead)) !== null) {
+        const funcName = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
         if (!funcName) continue;
         funcNameSet.add(funcName);
         funcs.push({ name: funcName, bodyStart: match.index + match[0].length });
@@ -3619,9 +3676,6 @@ function generateModernMermaidFromContent(
           lines.push(`  ${srcId} --> ${tgtId}`);
         }
       }
-
-      // Unused: suppress lint warning on original funcRegex
-      void funcRegex;
 
       return '```mermaid\n' + lines.join('\n') + '\n```';
     }
@@ -3749,19 +3803,25 @@ function getActuallyAvailableDiagramsFromContent(
 function getModernAvailableTypes(content: string): string[] {
   const available: string[] = [];
 
-  const hasClass = /\b(class|interface|extends|implements)\b/.test(content);
+  // TS/JS/Java: class/interface/extends/implements; Go: type Foo struct / interface
+  const hasClass =
+    /\b(class|extends|implements)\b/.test(content) ||
+    /\btype\s+\w+\s+(struct|interface)\b/.test(content);
   if (hasClass) available.push('class');
 
+  // TS/JS: import…from / require; Python: from…import; Go: import "pkg" or import (
   const hasImports =
     /\bimport\s+.+\s+from\s+['"][^'"]+['"]/.test(content) ||
     /\brequire\s*\(\s*['"][^'"]+['"]\s*\)/.test(content) ||
-    /\bfrom\s+[a-zA-Z0-9_.]+\s+import\s+/.test(content);
+    /\bfrom\s+[a-zA-Z0-9_.]+\s+import\s+/.test(content) ||
+    /\bimport\s+["(]/.test(content);
   if (hasImports) available.push('dependency');
 
+  // TS/JS functions/arrows, Python def, Go free funcs + receiver methods
   const hasFunctions =
     /\bfunction\s+\w+/.test(content) ||
     /\bdef\s+\w+\s*\(/.test(content) ||
-    /\bfunc\s+\w+\s*\(/.test(content) ||
+    /\bfunc\s+(?:\(\w+\s+\*?\w+\)\s+)?\w+\s*\(/.test(content) ||
     /(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(content);
   if (hasFunctions) available.push('call-graph');
 
