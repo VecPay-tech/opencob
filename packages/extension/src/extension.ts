@@ -54,6 +54,7 @@ import {
   generateDiagramFromContent,
   classifyExtension,
   getAvailableDiagramTypes,
+  getAvailableDiagramsFromContent,
   getSectionsFromContent,
 } from '@opencob/core';
 
@@ -967,9 +968,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const available = info
-        ? getAvailableDiagramTypes(ext)
-        : ['class', 'call-graph', 'dependency', 'structure'];
+      const content = doc.getText();
+      let available: string[];
+      let recommended: string | undefined;
+      if (info) {
+        // Use content-based detection: only show types that have actual data
+        const contentBased = getAvailableDiagramsFromContent(content, ext);
+        available =
+          contentBased.types.length > 0 ? contentBased.types : getAvailableDiagramTypes(ext); // fallback: static list
+        recommended = contentBased.recommended;
+      } else {
+        available = ['class', 'call-graph', 'dependency', 'structure'];
+        recommended = undefined;
+      }
       if (available.length === 0) {
         vscode.window.showWarningMessage(
           `OpenCob: No diagram types available for ".${ext}" files.`,
@@ -977,9 +988,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const items = available.map((t) => ({
+      // Sort: recommended type first
+      const sorted = recommended
+        ? [
+            ...available.filter((t) => t === recommended),
+            ...available.filter((t) => t !== recommended),
+          ]
+        : available;
+
+      const items = sorted.map((t) => ({
         label: t,
-        description: getDiagramDescription(t),
+        description:
+          t === recommended
+            ? `${getDiagramDescription(t)} (Recommended)`
+            : getDiagramDescription(t),
       }));
 
       const categoryLabel = info ? info.category : 'modern';
@@ -988,7 +1010,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
       if (!selected) return;
 
-      const content = doc.getText();
       const result = generateDiagramFromContent(content, ext, selected.label as any);
 
       if (!result.success) {
