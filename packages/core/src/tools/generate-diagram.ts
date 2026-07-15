@@ -3435,10 +3435,10 @@ function generateModernMermaidFromContent(
       const nodeId = sanitizeId(virtualPath);
       lines.push(`  ${nodeId}["${virtualPath}"]`);
       const importRegex =
-        /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+([a-zA-Z0-9_.]+)\s+import\s+)/g;
+        /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+([a-zA-Z0-9_.]+)\s+import\s+|import\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*;)/g;
       let match;
       while ((match = importRegex.exec(content)) !== null) {
-        const dep = match[1] ?? match[2] ?? match[3];
+        const dep = match[1] ?? match[2] ?? match[3] ?? match[4];
         const depId = sanitizeId(`dep_${dep}`);
         lines.push(`  ${nodeId} --> ${depId}["${dep}"]`);
       }
@@ -3456,7 +3456,7 @@ function generateModernMermaidFromContent(
     case 'class': {
       const lines = ['classDiagram'];
       const classRegex =
-        /(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
+        /\b(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
       let match;
       while ((match = classRegex.exec(content)) !== null) {
         const className = match[1];
@@ -3596,14 +3596,16 @@ function generateModernMermaidFromContent(
 
       // First pass: collect all function names and their body start positions.
       // Groups: 1=TS/JS fn, 2=TS/JS arrow, 3=Python def,
-      //         4=Go receiver method, 5=Go/other free func
+      //         4=Go receiver method, 5=Go/other free func,
+      //         6=Java/TS method with visibility modifier, 7=TS bare async method
       const funcRegex =
-        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+\(\w+\s+\*?\w+\)\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
+        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+\(\w+\s+\*?\w+\)\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(|\b(?:public|private|protected)\s+(?:(?:static|async|final|synchronized|abstract|readonly)\s+)*(?:[\w<>,.]+\s+)?(\w+)\s*\(|\basync\s+(?!function\b|def\b)(\w+)\s*\(/g;
       const funcs: Array<{ name: string; bodyStart: number }> = [];
       const funcNameSet = new Set<string>();
       const allFuncMatches: RegExpExecArray[] = [];
       while ((match = funcRegex.exec(contentRead)) !== null) {
-        const funcName = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+        const funcName =
+          match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? match[7];
         if (!funcName) continue;
         funcNameSet.add(funcName);
         funcs.push({ name: funcName, bodyStart: match.index + match[0].length });
@@ -3740,12 +3742,36 @@ function getActuallyAvailableDiagramsFromContent(
 
   for (const dtype of candidates) {
     switch (dtype) {
-      case 'call_graph':
-        if (/CALL\s+['"]?\w/i.test(content) || /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content)) {
+      case 'call_graph': {
+        // HLASM comment lines start with * — strip them before checking CALL
+        const contentForCallCheck =
+          info.language === 'asm'
+            ? content
+                .split('\n')
+                .filter((l) => !l.startsWith('*'))
+                .join('\n')
+            : content;
+        if (
+          /CALL\s+['"]?\w/i.test(contentForCallCheck) ||
+          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(contentForCallCheck) ||
+          /\bdcl-proc\b/i.test(content) || // RPG ILE free-format procedure
+          /\bCALLNAT\s+['"]/i.test(content) // NATURAL external program call
+        ) {
           available.push(dtype);
         }
         break;
+      }
       case 'dependency_map':
+        if (
+          /COPY\s+\w/i.test(content) ||
+          /\/COPY\s/i.test(content) ||
+          /%INCLUDE\s/i.test(content) ||
+          /\/\/\w+\s+EXEC\s+(PGM|PROC)=/i.test(content) || // JCL job steps
+          /\bCALLNAT\s+['"]/i.test(content) // NATURAL external program call
+        ) {
+          available.push(dtype);
+        }
+        break;
       case 'copybook_tree':
         if (
           /COPY\s+\w/i.test(content) ||
@@ -3757,6 +3783,16 @@ function getActuallyAvailableDiagramsFromContent(
         break;
       case 'structure_chart':
       case 'procedure_flow': {
+        // RPG ILE: free-format procedure declarations
+        if (/\bdcl-proc\b/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
+        // PL/I: PROCEDURE keyword (not COBOL PROCEDURE DIVISION)
+        if (/\bPROCEDURE\b/i.test(content) && !hasProcDiv) {
+          available.push(dtype);
+          break;
+        }
         if (!hasProcDiv) break;
         const paraCount = (content.match(/^.{6}\s{1,4}[A-Za-z0-9][\w-]+\s*\./gm) ?? []).length;
         const sectionCount = (upper.match(/\bSECTION\s*\./g) ?? []).length;
@@ -3769,10 +3805,22 @@ function getActuallyAvailableDiagramsFromContent(
         }
         break;
       case 'field_hierarchy':
-        if (/^\s*\d{2}\s+\w/m.test(content)) available.push(dtype);
+        if (
+          /^\s*\d{2}\s+\w/m.test(content) || // COBOL: 2-digit level numbers
+          /\bdcl-ds\b/i.test(content) || // RPG ILE data structures
+          /^\s*DCL\s+1\b/im.test(content) || // PL/I: DCL 1 record declaration
+          /\bDEFINE\s+DATA\b/i.test(content) // NATURAL: DEFINE DATA section
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'file_io':
-        if (upper.includes('SELECT') && upper.includes('ASSIGN')) available.push(dtype);
+        if (
+          (upper.includes('SELECT') && upper.includes('ASSIGN')) ||
+          /\bdcl-f\b/i.test(content) // RPG ILE file declarations
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'screen_layout':
         available.push(dtype);
@@ -3809,20 +3857,27 @@ function getModernAvailableTypes(content: string): string[] {
     /\btype\s+\w+\s+(struct|interface)\b/.test(content);
   if (hasClass) available.push('class');
 
-  // TS/JS: import…from / require; Python: from…import; Go: import "pkg" or import (
+  // TS/JS: import…from / require; Python: from…import; Go: import "pkg" or import (;
+  // Java: import java.util.List;
   const hasImports =
     /\bimport\s+.+\s+from\s+['"][^'"]+['"]/.test(content) ||
     /\brequire\s*\(\s*['"][^'"]+['"]\s*\)/.test(content) ||
     /\bfrom\s+[a-zA-Z0-9_.]+\s+import\s+/.test(content) ||
-    /\bimport\s+["(]/.test(content);
+    /\bimport\s+["(]/.test(content) ||
+    /\bimport\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*;/.test(content);
   if (hasImports) available.push('dependency');
 
-  // TS/JS functions/arrows, Python def, Go free funcs + receiver methods
+  // TS/JS functions/arrows, Python def, Go free funcs + receiver methods,
+  // Java/TS class methods with visibility modifiers, TS bare async methods
   const hasFunctions =
     /\bfunction\s+\w+/.test(content) ||
     /\bdef\s+\w+\s*\(/.test(content) ||
     /\bfunc\s+(?:\(\w+\s+\*?\w+\)\s+)?\w+\s*\(/.test(content) ||
-    /(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(content);
+    /(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(content) ||
+    /\b(?:public|private|protected)\s+(?:(?:static|async|final|synchronized|abstract|readonly)\s+)*(?:[\w<>,.]+\s+)?\w+\s*\(/.test(
+      content,
+    ) ||
+    /\basync\s+(?!function\b|def\b)\w+\s*\(/.test(content);
   if (hasFunctions) available.push('call-graph');
 
   // structure is always available as a fallback
