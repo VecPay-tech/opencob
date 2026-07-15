@@ -3451,11 +3451,77 @@ function generateModernMermaidFromContent(
       let match;
       while ((match = classRegex.exec(content)) !== null) {
         const className = match[1];
-        lines.push(`  class ${className}`);
         if (match[2]) lines.push(`  ${match[2]} <|-- ${className}`);
         if (match[3]) {
           const interfaces = match[3].split(',').map((s) => s.trim());
           for (const iface of interfaces) lines.push(`  ${iface} <|.. ${className}`);
+        }
+
+        // Extract class body members
+        const bodyStart = content.indexOf('{', match.index + match[0].length);
+        const members: string[] = [];
+        if (bodyStart !== -1) {
+          // Walk through the class body tracking brace depth
+          let depth = 0;
+          let i = bodyStart;
+          const bodyLines: string[] = [];
+          let bodyStarted = false;
+          while (i < content.length) {
+            const ch = content[i];
+            if (ch === '{') {
+              if (!bodyStarted) bodyStarted = true;
+              depth++;
+            } else if (ch === '}') {
+              depth--;
+              if (bodyStarted && depth === 0) break;
+            } else if (ch === '\n' && bodyStarted && depth === 1) {
+              bodyLines.push('');
+            }
+            if (ch !== '\n' && bodyStarted && depth === 1) {
+              if (bodyLines.length === 0) bodyLines.push('');
+              bodyLines[bodyLines.length - 1] += ch;
+            }
+            i++;
+          }
+
+          // Match TypeScript/Java properties
+          const propRe =
+            /^\s*(private|public|protected|readonly)(?:\s+readonly)?\s+(\w+)\s*[?!]?\s*:\s*([\w<>[\]|]+)/;
+          // Match TypeScript/Java methods
+          const methodRe =
+            /^\s*(private|public|protected)\s+(?:static\s+)?(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*([\w<>[\]|?]+))?/;
+          // Python def
+          const pyMethodRe = /^\s*def\s+(\w+)\s*\(self/;
+
+          for (const bl of bodyLines) {
+            if (members.length >= 10) break;
+            let m2 = propRe.exec(bl);
+            if (m2) {
+              const vis = m2[1] === 'private' ? '-' : m2[1] === 'protected' ? '#' : '+';
+              members.push(`    ${vis}${m2[3]} ${m2[2]}`);
+              continue;
+            }
+            m2 = methodRe.exec(bl);
+            if (m2 && m2[2] !== 'constructor') {
+              const vis = m2[1] === 'private' ? '-' : m2[1] === 'protected' ? '#' : '+';
+              const ret = m2[4] ? ` ${m2[4]}` : '';
+              const params = m2[3].trim() ? m2[3].trim().split(',').length + ' params' : '';
+              members.push(`    ${vis}${m2[2]}(${params})${ret}`);
+              continue;
+            }
+            m2 = pyMethodRe.exec(bl);
+            if (m2) {
+              members.push(`    +${m2[1]}()`);
+            }
+          }
+        }
+
+        if (members.length > 0) {
+          lines.push(`  class ${className} {`);
+          for (const m of members) lines.push(m);
+          lines.push(`  }`);
+        } else {
+          lines.push(`  class ${className}`);
         }
       }
       return lines.length > 1
@@ -3469,17 +3535,95 @@ function generateModernMermaidFromContent(
       const lines = ['graph LR'];
       const contentRead = read(files[0]);
       const funcRegex =
-        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
+        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
       let match;
-      while ((match = funcRegex.exec(contentRead)) !== null) {
+
+      // First pass: collect all function names and their body start positions
+      const funcs: Array<{ name: string; bodyStart: number }> = [];
+      const funcNameSet = new Set<string>();
+      const allFuncMatches: RegExpExecArray[] = [];
+      // Reset and collect
+      const funcRegex2 =
+        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
+      while ((match = funcRegex2.exec(contentRead)) !== null) {
         const funcName = match[1] ?? match[2] ?? match[3] ?? match[4];
         if (!funcName) continue;
-        const nodeId = sanitizeId(`fn:${funcName}`);
-        lines.push(`  ${nodeId}["${funcName}"]`);
+        funcNameSet.add(funcName);
+        funcs.push({ name: funcName, bodyStart: match.index + match[0].length });
+        allFuncMatches.push(match);
       }
-      return lines.length > 1
-        ? '```mermaid\n' + lines.join('\n') + '\n```'
-        : '```mermaid\ngraph LR\n  NoFunctionsFound["No functions found"]\n```';
+
+      if (funcs.length === 0) {
+        return '```mermaid\ngraph LR\n  NoFunctionsFound["No functions found"]\n```';
+      }
+
+      // Emit nodes
+      for (const fn of funcs) {
+        const nodeId = sanitizeId(`fn:${fn.name}`);
+        lines.push(`  ${nodeId}["${fn.name}"]`);
+      }
+
+      // Second pass: for each function body, detect calls to other known functions
+      const edgesEmitted = new Set<string>();
+      const SKIP_KEYWORDS = new Set([
+        'if',
+        'for',
+        'while',
+        'switch',
+        'catch',
+        'return',
+        'new',
+        'typeof',
+        'instanceof',
+        'in',
+        'of',
+        'async',
+        'await',
+        'throw',
+        'delete',
+        'void',
+        'print',
+        'len',
+        'range',
+        'append',
+        'str',
+        'int',
+        'list',
+        'dict',
+        'set',
+        'make',
+        'fmt',
+        'log',
+        'console',
+      ]);
+
+      for (let fi = 0; fi < funcs.length; fi++) {
+        const caller = funcs[fi];
+        const bodyEnd = fi + 1 < funcs.length ? allFuncMatches[fi + 1].index : contentRead.length;
+        const body = contentRead.slice(
+          caller.bodyStart,
+          Math.min(caller.bodyStart + 2000, bodyEnd),
+        );
+        const callRe = /\b(\w+)\s*\(/g;
+        let cm: RegExpExecArray | null;
+        while ((cm = callRe.exec(body)) !== null) {
+          const callee = cm[1];
+          if (callee === caller.name) continue; // self-loop
+          if (SKIP_KEYWORDS.has(callee)) continue;
+          if (!funcNameSet.has(callee)) continue;
+          const edgeKey = `${caller.name}->${callee}`;
+          if (edgesEmitted.has(edgeKey)) continue;
+          edgesEmitted.add(edgeKey);
+          const srcId = sanitizeId(`fn:${caller.name}`);
+          const tgtId = sanitizeId(`fn:${callee}`);
+          lines.push(`  ${srcId} --> ${tgtId}`);
+        }
+      }
+
+      // Unused: suppress lint warning on original funcRegex
+      void funcRegex;
+
+      return '```mermaid\n' + lines.join('\n') + '\n```';
     }
   }
 }
