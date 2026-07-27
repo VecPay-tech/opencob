@@ -1,0 +1,65 @@
+/************************************************************/
+/* RUNPAY - CL ILE JOB CONTROL FOR PAYMENT BATCH RUN       */
+/* Submits payment transaction processing jobs in sequence  */
+/************************************************************/
+PGM
+
+    DCL VAR(&JOBDATE)  TYPE(*CHAR) LEN(8)
+    DCL VAR(&RUNENV)   TYPE(*CHAR) LEN(4)  VALUE('PROD')
+    DCL VAR(&ERRFLAG)  TYPE(*LGL)          VALUE('0')
+    DCL VAR(&MSGID)    TYPE(*CHAR) LEN(7)
+    DCL VAR(&MSGDTA)   TYPE(*CHAR) LEN(100)
+
+    /* Declare file references */
+    DCLF FILE(PAYMSGS)
+    DCLF FILE(PAYJOB)
+
+    /* Get current date */
+    RTVSYSVAL SYSVAL(QDATE) RTNVAR(&JOBDATE)
+
+    /* Check environment */
+    IF COND(&RUNENV *EQ 'PROD') THEN(DO)
+        CALL PGM(ENVCHECK) PARM(&RUNENV &ERRFLAG)
+        IF COND(&ERRFLAG *EQ '1') THEN(DO)
+            SNDPGMMSG MSG('Environment check failed for PROD run') +
+                      MSGTYPE(*ESCAPE)
+            GOTO CMDLBL(ENDJOB)
+        ENDDO
+    ENDDO
+
+    /* Step 1 - Validate transaction input file */
+    MONMSG MSGID(CPF0000) EXEC(DO)
+        CHGVAR VAR(&ERRFLAG) VALUE('1')
+        GOTO CMDLBL(ERRHANDL)
+    ENDDO
+    CALL PGM(TXNVALID) PARM(&JOBDATE)
+
+    /* Step 2 - Submit authorisation pass */
+    SBMJOB JOB(PAYAUTH) JOBD(PAYJOB) PGM(PAYAUTH) +
+           PARM(&JOBDATE) INLLIBL(*CURRENT) +
+           MSGQ(PAYMSGS)
+
+    /* Wait for PAYAUTH to complete */
+    CALL PGM(WAITJOB) PARM('PAYAUTH' '120')
+
+    /* Step 3 - Run settlement calculation */
+    SBMJOB JOB(SETTLMNT) JOBD(PAYJOB) PGM(SETTLMNT) +
+           PARM(&JOBDATE) INLLIBL(*CURRENT) +
+           MSGQ(PAYMSGS)
+
+    CALL PGM(WAITJOB) PARM('SETTLMNT' '180')
+
+    /* Step 4 - Generate payment reports */
+    CALL PGM(PAYRPT) PARM(&JOBDATE &RUNENV)
+
+    SNDPGMMSG MSG('Payment batch run completed for ' *CAT &JOBDATE) +
+              MSGTYPE(*INFO) TOPGMQ(*EXT)
+    GOTO CMDLBL(ENDJOB)
+
+    ERRHANDL:
+        SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+                  MSGDTA('Payment batch run failed - check PAYMSGS') +
+                  MSGTYPE(*ESCAPE)
+
+    ENDJOB:
+ENDPGM

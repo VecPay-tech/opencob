@@ -11,6 +11,7 @@ import { EditsPanelProvider } from './edits/edits-panel-provider.js';
 import { SettingsPanelProvider } from './settings/settings-panel-provider.js';
 import { registerChatParticipant } from './chat/chat-participant.js';
 import { DiagramPanel } from './diagram-panel.js';
+import { openSamplesCommand } from './commands/open-samples.js';
 
 import { EEClient } from './enterprise/ee-client.js';
 import {
@@ -53,6 +54,7 @@ import {
   generateDiagramFromContent,
   classifyExtension,
   getAvailableDiagramTypes,
+  getAvailableDiagramsFromContent,
   getSectionsFromContent,
 } from '@opencob/core';
 
@@ -956,14 +958,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ext = path.extname(filePath).slice(1).toLowerCase();
       const info = classifyExtension(ext);
 
-      if (!info) {
+      // Known modern language extensions supported by generateDiagramFromContent
+      const MODERN_EXTS = new Set(['ts', 'tsx', 'js', 'mjs', 'py', 'java', 'go']);
+
+      if (!info && !MODERN_EXTS.has(ext)) {
         vscode.window.showWarningMessage(
           `OpenCob: Unsupported file type ".${ext}" for diagram generation.`,
         );
         return;
       }
 
-      const available = getAvailableDiagramTypes(ext);
+      const content = doc.getText();
+      let available: string[];
+      let recommended: string | undefined;
+      if (info) {
+        // Use content-based detection: only show types that have actual data
+        const contentBased = getAvailableDiagramsFromContent(content, ext);
+        available =
+          contentBased.types.length > 0 ? contentBased.types : getAvailableDiagramTypes(ext); // fallback: static list
+        recommended = contentBased.recommended;
+      } else {
+        available = ['class', 'call-graph', 'dependency', 'structure'];
+        recommended = undefined;
+      }
       if (available.length === 0) {
         vscode.window.showWarningMessage(
           `OpenCob: No diagram types available for ".${ext}" files.`,
@@ -971,17 +988,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const items = available.map((t) => ({
+      // Sort: recommended type first
+      const sorted = recommended
+        ? [
+            ...available.filter((t) => t === recommended),
+            ...available.filter((t) => t !== recommended),
+          ]
+        : available;
+
+      const items = sorted.map((t) => ({
         label: t,
-        description: getDiagramDescription(t),
+        description:
+          t === recommended
+            ? `${getDiagramDescription(t)} (Recommended)`
+            : getDiagramDescription(t),
       }));
 
+      const categoryLabel = info ? info.category : 'modern';
       const selected = await vscode.window.showQuickPick(items, {
-        placeHolder: `Select diagram type for ${path.basename(filePath)} (${info.category})`,
+        placeHolder: `Select diagram type for ${path.basename(filePath)} (${categoryLabel})`,
       });
       if (!selected) return;
 
-      const content = doc.getText();
       const result = generateDiagramFromContent(content, ext, selected.label as any);
 
       if (!result.success) {
@@ -1212,6 +1240,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('OpenCob.togglePanel', () => {
       vscode.commands.executeCommand('OpenCob.chatPanel.focus');
     }),
+  );
+
+  // Command: Open Sample Files — adds bundled samples folder to workspace
+  context.subscriptions.push(
+    vscode.commands.registerCommand('opencob.openSamples', () => openSamplesCommand(context)),
   );
 
   // Disconnect MCP servers on deactivation

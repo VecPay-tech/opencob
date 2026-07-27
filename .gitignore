@@ -78,6 +78,7 @@ tsconfig.tsbuildinfo
 
 # esbuild / bundler
 *.map
+!packages/extension/resources/samples/*.map
 meta.json
 
 # VS Code extension development

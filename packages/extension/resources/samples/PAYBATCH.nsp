@@ -1,0 +1,65 @@
+* PAYBATCH - NATURAL PAYMENT BATCH PROGRAM
+* Reads transactions from TRANSACT file, validates,
+* accumulates totals by merchant, writes settlement records.
+*
+DEFINE DATA
+  LOCAL
+    1 #TRANS-REC
+      2 #TRANS-ID        (A10)
+      2 #ACCOUNT-NO      (A16)
+      2 #AMOUNT          (P13.2)
+      2 #TRANS-TYPE      (A1)
+      2 #CURRENCY        (A3)
+      2 #MERCHANT-ID     (A15)
+      2 #STATUS          (A2)
+    1 #SETTLE-REC
+      2 #MERCH-ID        (A15)
+      2 #GROSS           (P15.2)
+      2 #FEE             (P13.2)
+      2 #NET             (P15.2)
+      2 #TX-COUNT        (I4)
+    1 #CURR-MERCH        (A15)  INIT<' '>
+    1 #FEE-RATE          (P5.4) INIT<0.0175>
+    1 #PROC-COUNT        (I7)   INIT<0>
+    1 #ERR-COUNT         (I7)   INIT<0>
+END-DEFINE
+*
+OPEN DATASET (001) 'TRANSACT' MODE INPUT
+OPEN DATASET (002) 'SETTLE'   MODE OUTPUT
+*
+CALLNAT 'INITSETL' #SETTLE-REC
+*
+REPEAT
+  READ DATASET (001) #TRANS-REC
+  IF *EOF (001)
+    ESCAPE BOTTOM
+  END-IF
+  *
+  IF #MERCHANT-ID NE #CURR-MERCH AND #CURR-MERCH NE ' '
+    CALLNAT 'WRTSETTL' #SETTLE-REC
+    CALLNAT 'INITSETL' #SETTLE-REC
+  END-IF
+  *
+  MOVE #MERCHANT-ID TO #CURR-MERCH
+  *
+  IF #TRANS-TYPE = 'P' OR = 'T'
+    COMPUTE #FEE = #AMOUNT * #FEE-RATE
+    ADD #AMOUNT TO #SETTLE-REC.#GROSS
+    ADD #FEE    TO #SETTLE-REC.#FEE
+    ADD (#AMOUNT - #FEE) TO #SETTLE-REC.#NET
+    ADD 1       TO #SETTLE-REC.#TX-COUNT
+    ADD 1       TO #PROC-COUNT
+  ELSE
+    ADD 1 TO #ERR-COUNT
+  END-IF
+END-REPEAT
+*
+IF #CURR-MERCH NE ' '
+  CALLNAT 'WRTSETTL' #SETTLE-REC
+END-IF
+*
+CLOSE DATASET (001)
+CLOSE DATASET (002)
+*
+WRITE 'Processed:' #PROC-COUNT 'Errors:' #ERR-COUNT
+END

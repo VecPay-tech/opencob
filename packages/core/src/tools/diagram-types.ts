@@ -456,9 +456,16 @@ export const DIAGRAM_TYPES: Record<FileCategory, string[]> = {
     'copybook_tree',
     'usage_map',
   ],
-  copybook: ['record_layout', 'field_hierarchy', 'dependency_map', 'copybook_tree', 'usage_map'],
+  copybook: [
+    'call_graph',
+    'record_layout',
+    'field_hierarchy',
+    'dependency_map',
+    'copybook_tree',
+    'usage_map',
+  ],
   screen: ['screen_layout', 'dependency_map', 'copybook_tree', 'usage_map'],
-  dds: ['record_layout', 'field_hierarchy', 'usage_map'],
+  dds: ['record_layout', 'field_hierarchy', 'dependency_map', 'usage_map'],
   jcl: ['dependency_map', 'usage_map'],
   other: ['dependency_map', 'copybook_tree', 'usage_map'],
 };

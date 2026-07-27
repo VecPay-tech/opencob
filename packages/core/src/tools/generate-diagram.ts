@@ -35,6 +35,10 @@ import {
   PLI_EXTS,
   BMS_EXTS,
   DDS_EXTS,
+  JCL_EXTS,
+  REXX_EXTS,
+  NATURAL_EXTS,
+  ASM_EXTS,
   classifyExtension,
   getAvailableDiagramTypes,
 } from './diagram-types.js';
@@ -258,6 +262,8 @@ function inferLegacyTypeFromContent(info: FileTypeInfo, content: string): Legacy
   }
   if (info.category === 'dds' || info.category === 'copybook') {
     if (/^\s*\d{2}\s+\w/m.test(content)) return 'field_hierarchy';
+    // Procedure copybooks (no data definitions but have CALL statements)
+    if (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(content)) return 'call_graph';
     return 'record_layout';
   }
 
@@ -355,25 +361,59 @@ function getActuallyAvailableDiagrams(
   const upper = content.toUpperCase();
   const hasProcDiv = upper.includes('PROCEDURE DIVISION');
 
+  // For COBOL: strip comment lines (col 7 = '*') before pattern checks
+  const codeContent =
+    info.language === 'cobol'
+      ? content
+          .split('\n')
+          .filter((l) => !(l.length > 6 && l[6] === '*'))
+          .join('\n')
+      : content;
+
   for (const dtype of candidateTypes) {
     switch (dtype) {
       case 'call_graph':
-        if (/CALL\s+['"]?\w/i.test(content) || /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content)) {
+        if (
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(codeContent) ||
+          /CALLP?\s+\w+\s*\(/i.test(content) ||
+          /(?:dcl-proc\s+\w+|end-proc)/i.test(content)
+        ) {
           available.push(dtype);
         }
         break;
       case 'dependency_map':
+        if (
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent) ||
+          /\/\/\w+\s+EXEC\s+(PGM|PROC)=/i.test(content) ||
+          /\bCALLNAT\s+['"]/i.test(content) ||
+          (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(codeContent)) ||
+          // CL: DCLF FILE(...) declares a file dependency
+          (info.language === 'cl' && /\bDCLF\b/i.test(content)) ||
+          // DDS/screen: REF() and REFFLD() reference external field definitions
+          (info.language === 'dds' && /\bREF\s*\(|\bREFFLD\s*\(/i.test(content))
+        ) {
+          available.push(dtype);
+        }
+        break;
       case 'copybook_tree':
         if (
-          /COPY\s+\w/i.test(content) ||
-          /\/COPY\s/i.test(content) ||
-          /%INCLUDE\s/i.test(content)
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent)
         ) {
           available.push(dtype);
         }
         break;
       case 'structure_chart':
       case 'procedure_flow': {
+        // CL: subroutine blocks (SUBR SUBR(...))
+        if (/\bSUBR\s+SUBR\s*\(/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
         if (!hasProcDiv) break;
         const paraCount = (content.match(/^.{6}\s{1,4}[A-Za-z0-9][\w-]+\s*\./gm) ?? []).length;
         const sectionCount = (upper.match(/\bSECTION\s*\./g) ?? []).length;
@@ -386,7 +426,12 @@ function getActuallyAvailableDiagrams(
         }
         break;
       case 'field_hierarchy':
-        if (/^\s*\d{2}\s+\w/m.test(content)) available.push(dtype);
+        if (
+          info.category === 'dds' || // DDS: record R/field structure detected by parseDds
+          /^\s*\d{2}\s+\w/m.test(codeContent) // COBOL: 2-digit level numbers
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'file_io':
         if (upper.includes('SELECT') && upper.includes('ASSIGN')) available.push(dtype);
@@ -395,12 +440,19 @@ function getActuallyAvailableDiagrams(
         available.push(dtype); // Always available for screen/dspf files
         break;
       case 'record_layout':
-        available.push(dtype); // Always available for dds/copybook files
+        // Gate on actual data definitions - not for procedure-only copybooks
+        if (
+          info.category === 'dds' ||
+          /^\s*\d{2}\s+\w/m.test(codeContent) ||
+          /\bDEFINE\s+DATA\b/i.test(content)
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'usage_map':
         if (
-          /CALL\s+['"]?\w/i.test(content) ||
-          /COPY\s+\w/i.test(content) ||
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /COPY\s+\w/i.test(codeContent) ||
           (upper.includes('SELECT') && upper.includes('ASSIGN'))
         ) {
           available.push(dtype);
@@ -465,6 +517,14 @@ function generateLegacyDiagram(
     data = generateBmsDiagram(fullPath, content, diagramType);
   } else if (DDS_EXTS.has(ext)) {
     data = generateDdsDiagram(fullPath, content, diagramType);
+  } else if (JCL_EXTS.has(ext)) {
+    data = generateJclDiagram(fullPath, content, diagramType);
+  } else if (REXX_EXTS.has(ext)) {
+    data = generateRexxDiagram(fullPath, content, diagramType, sectionId);
+  } else if (NATURAL_EXTS.has(ext)) {
+    data = generateNaturalDiagram(fullPath, content, diagramType);
+  } else if (ASM_EXTS.has(ext)) {
+    data = generateAsmDiagram(fullPath, content, diagramType, sectionId);
   }
 
   if (!data || (data.nodes.length === 0 && !data.data)) {
@@ -602,7 +662,7 @@ function generateCobolCallGraph(program: CobolProgram): DiagramData | null {
 }
 
 function generateCobolDependencyMap(program: CobolProgram): DiagramData | null {
-  if (program.copybooks.length === 0) return null;
+  if (program.copybooks.length === 0 && program.callStatements.length === 0) return null;
 
   const nodes: DiagramNode[] = [];
   const edges: DiagramEdge[] = [];
@@ -619,7 +679,19 @@ function generateCobolDependencyMap(program: CobolProgram): DiagramData | null {
     edges.push({ source: sourceId, target: nid, label: 'COPY', line: copy.line });
   }
 
-  return { nodes, edges };
+  // Procedure copybooks: no COPY statements but has CALL → show called programs as dependencies
+  if (program.copybooks.length === 0) {
+    for (const call of program.callStatements) {
+      const nid = `dep_${sanitizeId(call.target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: call.target, type: 'dependency', startLine: call.line });
+        edges.push({ source: sourceId, target: nid, label: 'CALL', line: call.line });
+      }
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
 }
 
 function generateCobolStructureChart(program: CobolProgram): DiagramData | null {
@@ -1128,17 +1200,79 @@ function generateRpgCallGraph(
   const sourceId = `src_${sanitizeId(programName)}`;
   nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
 
-  // Extract CALLP and CALL from content
-  const callRegex = /CALLP?\s+(\w+)\s*\(/gi;
+  // Extract CALLP, CALL, and bare procedure calls from RPG ILE free format
+  // Matches: CALLP proc(...), CALL proc(...), or just proc(...)
+  // The negative lookbehind (?<![a-zA-Z0-9_%]) prevents matching BIFs like %foo(
+  const callRegex = /(?:CALLP?\s+)?(?<![a-zA-Z0-9_%])([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/gi;
   const lines = content.split('\n');
   const seen = new Set<string>();
+
+  // RPG ILE keywords, opcodes, and declaration keywords that appear before '(' but are NOT calls
+  const RPG_KEYWORDS = new Set([
+    // Control structures
+    'IF',
+    'FOR',
+    'DOW',
+    'DOU',
+    'WHEN',
+    'EVAL',
+    'RETURN',
+    'NOT',
+    'AND',
+    'OR',
+    'SELECT',
+    'CASE',
+    // Declaration opcodes that accept parameters in parens
+    'DFTACTGRP',
+    'ACTGRP',
+    'OPTION',
+    'EXTNAME',
+    'LIKEDS',
+    'USAGE',
+    'KEYED',
+    'PREFIX',
+    'QUALIFIED',
+    'BASED',
+    'DIM',
+    'CTDATA',
+    'PERRCD',
+    'FROMFILE',
+    'TOFILE',
+    'OFLIND',
+    'INDDS',
+    'DISK',
+    'CHAR',
+    'PACKED',
+    // Common built-in function names without % that might leak through
+    'SQRT',
+    'ABS',
+    'INT',
+    'INTH',
+    'REM',
+    'DIV',
+    'MOD',
+    // DCL keywords
+    'DCL',
+    'END',
+    'BEGSR',
+    'ENDSR',
+    'DCLDS',
+    'ENDDS',
+    'DCLPR',
+    'ENDPR',
+  ]);
 
   for (let i = 0; i < lines.length; i++) {
     callRegex.lastIndex = 0;
     let m: RegExpExecArray | null;
     while ((m = callRegex.exec(lines[i])) !== null) {
       const target = m[1].toUpperCase();
-      if (['IF', 'FOR', 'DOW', 'DOU', 'WHEN', 'EVAL', 'RETURN'].includes(target)) continue;
+      // Skip language keywords, opcodes, and declaration keywords
+      if (RPG_KEYWORDS.has(target)) continue;
+      // Also skip if match position is immediately preceded by % (BIF guard for engines
+      // that don't fully support variable-width lookbehind at all match positions)
+      const matchStart = m.index;
+      if (matchStart > 0 && lines[i][matchStart - 1] === '%') continue;
       const nid = `c_${sanitizeId(target)}`;
       if (!seen.has(nid)) {
         seen.add(nid);
@@ -2424,10 +2558,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
     scanDirs.push(greatGrandParent);
   }
 
-  const copyPattern = new RegExp(
-    `(?:COPY|/COPY|%INCLUDE|CALL\\s+['"]?)${escapeRegExp(baseName)}\\b`,
-    'i',
-  );
+  const checkCopyReference = (text: string): boolean => hasReferenceToName(text, baseName);
 
   const sourceId = data.nodes[0]?.id;
   if (!sourceId) return;
@@ -2441,7 +2572,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
     scanDirectoryForRefs(
       dir,
       fullPath,
-      copyPattern,
+      checkCopyReference,
       data,
       sourceId,
       seenUsers,
@@ -2462,7 +2593,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
 function scanDirectoryForRefs(
   dir: string,
   selfPath: string,
-  pattern: RegExp,
+  checkReference: (text: string) => boolean,
   data: DiagramData,
   sourceId: string,
   seenUsers: Set<string>,
@@ -2491,7 +2622,7 @@ function scanDirectoryForRefs(
         scanDirectoryForRefs(
           entryPath,
           selfPath,
-          pattern,
+          checkReference,
           data,
           sourceId,
           seenUsers,
@@ -2518,7 +2649,7 @@ function scanDirectoryForRefs(
     const entryContent = safeReadFile(entryPath);
     if (!entryContent) continue;
 
-    if (pattern.test(entryContent)) {
+    if (checkReference(entryContent)) {
       const userName = path.basename(entry.name, path.extname(entry.name)).toUpperCase();
       const nid = `usr_${sanitizeId(userName)}`;
       if (seenUsers.has(nid)) continue;
@@ -2536,8 +2667,49 @@ function scanDirectoryForRefs(
   }
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function hasReferenceToName(text: string, nameUpper: string): boolean {
+  const upper = text.toUpperCase();
+  return (
+    upper.includes(`COPY ${nameUpper}`) ||
+    upper.includes(`COPY '${nameUpper}`) ||
+    upper.includes(`COPY "${nameUpper}`) ||
+    upper.includes(`/COPY ${nameUpper}`) ||
+    upper.includes(`%INCLUDE ${nameUpper}`) ||
+    upper.includes(`CALL ${nameUpper}`) ||
+    upper.includes(`CALL '${nameUpper}`) ||
+    upper.includes(`CALL "${nameUpper}`) ||
+    upper.includes(`CALL PGM(${nameUpper}`) ||
+    upper.includes(`CALL PGM( ${nameUpper}`) ||
+    upper.includes(`/${nameUpper})`) ||
+    upper.includes(`'${nameUpper}')`) ||
+    upper.includes(`"${nameUpper}")`)
+  );
+}
+
+function inferRefType(text: string, nameUpper: string): 'CALLS' | 'COPIES' | 'USES' {
+  const upper = text.toUpperCase();
+  if (
+    upper.includes(`CALL ${nameUpper}`) ||
+    upper.includes(`CALL '${nameUpper}`) ||
+    upper.includes(`CALL "${nameUpper}`) ||
+    upper.includes(`CALL PGM(${nameUpper}`) ||
+    upper.includes(`CALL PGM( ${nameUpper}`) ||
+    upper.includes(`/${nameUpper})`) ||
+    upper.includes(`'${nameUpper}')`) ||
+    upper.includes(`"${nameUpper}")`)
+  ) {
+    return 'CALLS';
+  }
+  if (
+    upper.includes(`COPY ${nameUpper}`) ||
+    upper.includes(`COPY '${nameUpper}`) ||
+    upper.includes(`COPY "${nameUpper}`) ||
+    upper.includes(`/COPY ${nameUpper}`) ||
+    upper.includes(`%INCLUDE ${nameUpper}`)
+  ) {
+    return 'COPIES';
+  }
+  return 'USES';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2558,11 +2730,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
     scanDirs.push(grandParentDir);
   }
 
-  // Pattern: CALL 'BASENAME' or COPY BASENAME or /COPY BASENAME
-  const refPattern = new RegExp(
-    `(?:CALL\\s+['"]?${escapeRegExp(baseName)}|COPY\\s+${escapeRegExp(baseName)}|/COPY\\s+${escapeRegExp(baseName)}|%INCLUDE\\s+${escapeRegExp(baseName)}|CALL\\s+PGM\\(\\s*(?:\\w+/)?${escapeRegExp(baseName)})\\b`,
-    'i',
-  );
+  const checkForReference = (text: string, name: string): boolean =>
+    hasReferenceToName(text, name.toUpperCase());
 
   const sourceId = data.nodes[0]?.id;
   if (!sourceId) return;
@@ -2576,7 +2745,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
     scanDirectoryForUsageRefs(
       dir,
       fullPath,
-      refPattern,
+      baseName,
+      checkForReference,
       data,
       sourceId,
       seenUsers,
@@ -2597,7 +2767,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
 function scanDirectoryForUsageRefs(
   dir: string,
   selfPath: string,
-  pattern: RegExp,
+  baseName: string,
+  checkForReference: (text: string, name: string) => boolean,
   data: DiagramData,
   sourceId: string,
   seenUsers: Set<string>,
@@ -2626,7 +2797,8 @@ function scanDirectoryForUsageRefs(
         scanDirectoryForUsageRefs(
           entryPath,
           selfPath,
-          pattern,
+          baseName,
+          checkForReference,
           data,
           sourceId,
           seenUsers,
@@ -2651,18 +2823,15 @@ function scanDirectoryForUsageRefs(
     const entryContent = safeReadFile(entryPath);
     if (!entryContent) continue;
 
-    if (pattern.test(entryContent)) {
+    if (checkForReference(entryContent, baseName)) {
       const userName = path.basename(entry.name, path.extname(entry.name)).toUpperCase();
       const nid = `in_${sanitizeId(userName)}`;
       if (seenUsers.has(nid)) continue;
       seenUsers.add(nid);
 
       // Determine ref type
-      const upper = entryContent.toUpperCase();
-      const baseName = path.basename(selfPath, path.extname(selfPath)).toUpperCase();
-      let refType = 'USES';
-      if (new RegExp(`CALL\\s+['"]?${escapeRegExp(baseName)}`, 'i').test(upper)) refType = 'CALLS';
-      else if (new RegExp(`COPY\\s+${escapeRegExp(baseName)}`, 'i').test(upper)) refType = 'COPIES';
+      const resolvedBaseName = path.basename(selfPath, path.extname(selfPath)).toUpperCase();
+      const refType = inferRefType(entryContent, resolvedBaseName);
 
       const fileId = root ? path.relative(root, entryPath).replace(/\\/g, '/') : undefined;
       data.nodes.push({ id: nid, label: userName, type: 'caller', fileId });
@@ -2841,6 +3010,14 @@ export function generateDiagramFromContent(
     data = generateBmsDiagram(syntheticPath, content, legacyType);
   } else if (DDS_EXTS.has(ext)) {
     data = generateDdsDiagram(syntheticPath, content, legacyType);
+  } else if (JCL_EXTS.has(ext)) {
+    data = generateJclDiagram(syntheticPath, content, legacyType);
+  } else if (REXX_EXTS.has(ext)) {
+    data = generateRexxDiagram(syntheticPath, content, legacyType, sectionId);
+  } else if (NATURAL_EXTS.has(ext)) {
+    data = generateNaturalDiagram(syntheticPath, content, legacyType);
+  } else if (ASM_EXTS.has(ext)) {
+    data = generateAsmDiagram(syntheticPath, content, legacyType, sectionId);
   }
 
   if (!data || (data.nodes.length === 0 && !data.data)) {
@@ -2906,6 +3083,442 @@ export function generateDiagramFromContent(
   return { success: true, content: mermaid, metadata };
 }
 
+// ══════════════════════════════════════════════════════════════
+//  JCL Diagram Generators (z/OS Job Control Language)
+// ══════════════════════════════════════════════════════════════
+
+function generateJclDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateJclDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateJclDependencyMap(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const jobName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(jobName)}`;
+  nodes.push({ id: sourceId, label: jobName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // Match EXEC PGM=pgmname and EXEC PROC=procname
+  const execPgmRe = /\/\/\w+\s+EXEC\s+PGM=(\w+)/i;
+  const execProcRe = /\/\/\w+\s+EXEC\s+PROC=(\w+)/i;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('//*')) continue; // Comment
+
+    let m = execPgmRe.exec(line);
+    if (m) {
+      const target = m[1].toUpperCase();
+      const nid = `pgm_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'EXEC PGM', line: i + 1 });
+      continue;
+    }
+
+    m = execProcRe.exec(line);
+    if (m) {
+      const target = m[1].toUpperCase();
+      // Skip JCL control keywords
+      if (['JOB', 'DD', 'SET', 'IF', 'THEN', 'ELSE', 'ENDIF', 'INCLUDE', 'OUTPUT'].includes(target))
+        continue;
+      const nid = `proc_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'EXEC', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REXX Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateRexxDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+  sectionId?: number,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'control_flow':
+      return generateRexxControlFlow(content, filePath, sectionId);
+    case 'call_graph':
+      return generateRexxCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateRexxDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateRexxControlFlow(
+  content: string,
+  filePath: string,
+  _sectionId?: number,
+): DiagramData | null {
+  const lines = content.split('\n');
+  const stripped = lines.map((l) => l.trimEnd());
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const flowData = parseClControlFlow(stripped, 1, programName);
+  if (flowData.nodes.length === 0) return null;
+  return {
+    nodes: flowData.nodes,
+    edges: flowData.edges,
+    diagram_type: 'control_flow',
+    data: flowData,
+  };
+}
+
+function generateRexxCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALL proc / CALL value(...)
+  const callRe = /CALL\s+(\w+)/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callRe.exec(lines[i])) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateRexxDependencyMap(content: string, filePath: string): DiagramData | null {
+  // REXX typically has no COPY, but may CALL external programs
+  return generateRexxCallGraph(content, filePath);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  NATURAL Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateNaturalDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'call_graph':
+      return generateNaturalCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateNaturalDependencyMap(content, filePath);
+    case 'field_hierarchy':
+    case 'record_layout':
+      return generateNaturalFieldHierarchy(content);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateNaturalCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALLNAT 'program' or CALL 'program' or PERFORM subroutine
+  const callnatRe = /CALLNAT\s+['"]?(\w+)/gi;
+  const callRe = /\bCALL\s+['"](\w+)['"]/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    callnatRe.lastIndex = 0;
+    callRe.lastIndex = 0;
+
+    let m: RegExpExecArray | null;
+    while ((m = callnatRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `cn_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALLNAT', line: i + 1 });
+    }
+    while ((m = callRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateNaturalDependencyMap(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  const callnatRe = /CALLNAT\s+['"]?(\w+)/gi;
+  const callRe = /\bCALL\s+['"](\w+)['"]/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    callnatRe.lastIndex = 0;
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callnatRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `dep_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        // type 'dependency' → rectangle node, visually distinct from 'call' subroutine shape
+        nodes.push({ id: nid, label: target, type: 'dependency', startLine: i + 1 });
+        edges.push({ source: sourceId, target: nid }); // no label — static dependency, not call flow
+      }
+    }
+    while ((m = callRe.exec(line)) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `dep_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'dependency', startLine: i + 1 });
+        edges.push({ source: sourceId, target: nid });
+      }
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateNaturalFieldHierarchy(content: string): DiagramData | null {
+  // NATURAL DEFINE DATA block
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const defineRe = /^\s+(\d+)\s+#?([\w-]+)\s+\(([^)]+)\)/;
+  const lines = content.split('\n');
+  let idx = 0;
+  const stack: Array<{ level: number; id: string }> = [];
+  let inDefine = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const upper = lines[i].toUpperCase().trim();
+    if (upper.startsWith('DEFINE DATA')) {
+      inDefine = true;
+      continue;
+    }
+    if (upper === 'END-DEFINE') {
+      inDefine = false;
+      continue;
+    }
+    if (!inDefine) continue;
+
+    const m = defineRe.exec(lines[i]);
+    if (m) {
+      const lvl = parseInt(m[1], 10);
+      const name = m[2].toUpperCase();
+      const type = m[3];
+      const nid = `d${idx}`;
+      nodes.push({
+        id: nid,
+        label: `${name} (${type})`,
+        type: lvl === 1 ? 'record' : 'field',
+        level: lvl,
+        startLine: i + 1,
+      });
+      while (stack.length > 0 && stack[stack.length - 1].level >= lvl) stack.pop();
+      if (stack.length > 0) edges.push({ source: stack[stack.length - 1].id, target: nid });
+      stack.push({ level: lvl, id: nid });
+      idx++;
+    }
+  }
+
+  return nodes.length > 0 ? { nodes, edges } : null;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  HLASM / Assembler Diagram Generators
+// ══════════════════════════════════════════════════════════════
+
+function generateAsmDiagram(
+  filePath: string,
+  content: string,
+  diagramType: LegacyDiagramType,
+  sectionId?: number,
+): DiagramData | null {
+  switch (diagramType) {
+    case 'control_flow':
+      return generateAsmControlFlow(content, filePath, sectionId);
+    case 'call_graph':
+      return generateAsmCallGraph(content, filePath);
+    case 'dependency_map':
+    case 'copybook_tree':
+      return generateAsmDependencyMap(content, filePath);
+    case 'usage_map':
+      return generateUsageMap(
+        path.basename(filePath, path.extname(filePath)).toUpperCase(),
+        content,
+      );
+    default:
+      return null;
+  }
+}
+
+function generateAsmControlFlow(
+  content: string,
+  filePath: string,
+  _sectionId?: number,
+): DiagramData | null {
+  const lines = content.split('\n');
+  const stripped = lines.map((l) => l.trimEnd());
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const flowData = parseClControlFlow(stripped, 1, programName);
+  if (flowData.nodes.length === 0) {
+    // Fallback: build a simple node list from CSECT/DSECT/DS labels
+    const nodes: DiagramNode[] = [];
+    const edges: DiagramEdge[] = [];
+    const programId = `src_${sanitizeId(programName)}`;
+    nodes.push({ id: programId, label: programName, type: 'source', startLine: 0 });
+    const labelRe = /^(\w+)\s+(?:DS|DC|CSECT|DSECT|EQU)/i;
+    let idx = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const m = labelRe.exec(lines[i]);
+      if (m) {
+        const nid = `l${idx}`;
+        nodes.push({ id: nid, label: m[1], type: 'paragraph', startLine: i + 1 });
+        if (idx > 0) edges.push({ source: `l${idx - 1}`, target: nid, edgeType: 'fallthrough' });
+        idx++;
+      }
+    }
+    return nodes.length > 1 ? { nodes, edges } : null;
+  }
+  return {
+    nodes: flowData.nodes,
+    edges: flowData.edges,
+    diagram_type: 'control_flow',
+    data: flowData,
+  };
+}
+
+function generateAsmCallGraph(content: string, filePath: string): DiagramData | null {
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  // CALL macro: CALL label or BAL/BALR Rx,label or L Rx,=V(label)
+  const callRe = /\bBAL[R]?\s+\w+,(\w+)|=V\((\w+)\)|\bCALL\s+(\w+)/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('*')) continue; // Comment
+    callRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = callRe.exec(lines[i])) !== null) {
+      const target = (m[1] ?? m[2] ?? m[3])?.toUpperCase();
+      if (!target) continue;
+      // Skip registers and common labels
+      if (/^R\d+$/.test(target) || ['R14', 'R15'].includes(target)) continue;
+      const nid = `c_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'call', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'CALL', line: i + 1 });
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
+}
+
+function generateAsmDependencyMap(content: string, filePath: string): DiagramData | null {
+  // COPY maclibs and MACRO references
+  const nodes: DiagramNode[] = [];
+  const edges: DiagramEdge[] = [];
+  const programName = path.basename(filePath, path.extname(filePath)).toUpperCase();
+  const sourceId = `src_${sanitizeId(programName)}`;
+  nodes.push({ id: sourceId, label: programName, type: 'source', startLine: 0 });
+
+  const lines = content.split('\n');
+  const seen = new Set<string>();
+  const copyRe = /\bCOPY\s+(\w+)/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    copyRe.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = copyRe.exec(lines[i])) !== null) {
+      const target = m[1].toUpperCase();
+      const nid = `cp_${sanitizeId(target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: target, type: 'copybook', startLine: i + 1 });
+      }
+      edges.push({ source: sourceId, target: nid, label: 'COPY', line: i + 1 });
+    }
+  }
+
+  if (nodes.length <= 1) {
+    return generateAsmCallGraph(content, filePath);
+  }
+
+  return { nodes, edges };
+}
+
 /**
  * Return a human-friendly hint explaining what the file needs for a given diagram type.
  */
@@ -2949,29 +3562,153 @@ function generateModernMermaidFromContent(
       const nodeId = sanitizeId(virtualPath);
       lines.push(`  ${nodeId}["${virtualPath}"]`);
       const importRegex =
-        /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+([a-zA-Z0-9_.]+)\s+import\s+)/g;
+        /(?:import\s+.*from\s+['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\)|from\s+([a-zA-Z0-9_.]+)\s+import\s+|import\s+([a-zA-Z_][a-zA-Z0-9_.]*)\s*;)/g;
       let match;
       while ((match = importRegex.exec(content)) !== null) {
-        const dep = match[1] ?? match[2] ?? match[3];
+        const dep = match[1] ?? match[2] ?? match[3] ?? match[4];
         const depId = sanitizeId(`dep_${dep}`);
         lines.push(`  ${nodeId} --> ${depId}["${dep}"]`);
+      }
+      // Go: import "pkg" or import ( "pkg1"\n "pkg2" )
+      if (extension === 'go') {
+        const goImportRe = /^\s+"([^"]+)"/gm;
+        while ((match = goImportRe.exec(content)) !== null) {
+          const dep = match[1];
+          const depId = sanitizeId(`dep_${dep}`);
+          lines.push(`  ${nodeId} --> ${depId}["${dep}"]`);
+        }
       }
       return '```mermaid\n' + lines.join('\n') + '\n```';
     }
     case 'class': {
       const lines = ['classDiagram'];
       const classRegex =
-        /(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
+        /\b(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+))?/g;
       let match;
       while ((match = classRegex.exec(content)) !== null) {
         const className = match[1];
-        lines.push(`  class ${className}`);
         if (match[2]) lines.push(`  ${match[2]} <|-- ${className}`);
         if (match[3]) {
           const interfaces = match[3].split(',').map((s) => s.trim());
           for (const iface of interfaces) lines.push(`  ${iface} <|.. ${className}`);
         }
+
+        // Extract class body members
+        const bodyStart = content.indexOf('{', match.index + match[0].length);
+        const members: string[] = [];
+        if (bodyStart !== -1) {
+          // Walk through the class body tracking brace depth
+          let depth = 0;
+          let i = bodyStart;
+          const bodyLines: string[] = [];
+          let bodyStarted = false;
+          while (i < content.length) {
+            const ch = content[i];
+            if (ch === '{') {
+              if (!bodyStarted) bodyStarted = true;
+              depth++;
+            } else if (ch === '}') {
+              depth--;
+              if (bodyStarted && depth === 0) break;
+            } else if (ch === '\n' && bodyStarted && depth === 1) {
+              bodyLines.push('');
+            }
+            if (ch !== '\n' && bodyStarted && depth === 1) {
+              if (bodyLines.length === 0) bodyLines.push('');
+              bodyLines[bodyLines.length - 1] += ch;
+            }
+            i++;
+          }
+
+          // Match TypeScript/Java properties
+          const propRe =
+            /^\s*(private|public|protected|readonly)(?:\s+readonly)?\s+(\w+)\s*[?!]?\s*:\s*([\w<>[\]|]+)/;
+          // Match TypeScript/Java methods
+          const methodRe =
+            /^\s*(private|public|protected)\s+(?:static\s+)?(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*([\w<>[\]|?]+))?/;
+          // Python def
+          const pyMethodRe = /^\s*def\s+(\w+)\s*\(self/;
+
+          for (const bl of bodyLines) {
+            if (members.length >= 10) break;
+            let m2 = propRe.exec(bl);
+            if (m2) {
+              const vis = m2[1] === 'private' ? '-' : m2[1] === 'protected' ? '#' : '+';
+              members.push(`    ${vis}${m2[3]} ${m2[2]}`);
+              continue;
+            }
+            m2 = methodRe.exec(bl);
+            if (m2 && m2[2] !== 'constructor') {
+              const vis = m2[1] === 'private' ? '-' : m2[1] === 'protected' ? '#' : '+';
+              const ret = m2[4] ? ` ${m2[4]}` : '';
+              const params = m2[3].trim() ? m2[3].trim().split(',').length + ' params' : '';
+              members.push(`    ${vis}${m2[2]}(${params})${ret}`);
+              continue;
+            }
+            m2 = pyMethodRe.exec(bl);
+            if (m2) {
+              members.push(`    +${m2[1]}()`);
+            }
+          }
+        }
+
+        if (members.length > 0) {
+          lines.push(`  class ${className} {`);
+          for (const m of members) lines.push(m);
+          lines.push(`  }`);
+        } else {
+          lines.push(`  class ${className}`);
+        }
       }
+      // Go: type Foo struct { fields } and type Foo interface { methods }
+      if (extension === 'go') {
+        const goTypeRe = /\btype\s+(\w+)\s+(struct|interface)\b/g;
+        while ((match = goTypeRe.exec(content)) !== null) {
+          const typeName = match[1];
+          const kind = match[2];
+          const bodyStart = content.indexOf('{', match.index + match[0].length);
+          const members: string[] = [];
+          if (bodyStart !== -1) {
+            let depth = 0;
+            let bi = bodyStart;
+            const goBodyLines: string[] = [];
+            let goBodyStarted = false;
+            while (bi < content.length) {
+              const ch = content[bi];
+              if (ch === '{') {
+                if (!goBodyStarted) goBodyStarted = true;
+                depth++;
+              } else if (ch === '}') {
+                depth--;
+                if (goBodyStarted && depth === 0) break;
+              } else if (ch === '\n' && goBodyStarted && depth === 1) {
+                goBodyLines.push('');
+              }
+              if (ch !== '\n' && goBodyStarted && depth === 1) {
+                if (goBodyLines.length === 0) goBodyLines.push('');
+                goBodyLines[goBodyLines.length - 1] += ch;
+              }
+              bi++;
+            }
+            const fieldRe = kind === 'struct' ? /^\s+(\w+)\s+([\w*[\].]+)/ : /^\s+(\w+)\s*\(/;
+            for (const bl of goBodyLines) {
+              if (members.length >= 10) break;
+              const m2 = fieldRe.exec(bl);
+              if (m2) {
+                members.push(kind === 'struct' ? `    +${m2[2]} ${m2[1]}` : `    +${m2[1]}()`);
+              }
+            }
+          }
+          if (members.length > 0) {
+            lines.push(`  class ${typeName} {`);
+            for (const m of members) lines.push(m);
+            lines.push(`  }`);
+          } else {
+            lines.push(`  class ${typeName}`);
+          }
+        }
+      }
+
       return lines.length > 1
         ? '```mermaid\n' + lines.join('\n') + '\n```'
         : '```mermaid\nclassDiagram\n  class NoClassesFound\n```';
@@ -2982,18 +3719,94 @@ function generateModernMermaidFromContent(
     default: {
       const lines = ['graph LR'];
       const contentRead = read(files[0]);
-      const funcRegex =
-        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?|\bdef\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(/g;
       let match;
+
+      // First pass: collect all function names and their body start positions.
+      // Groups: 1=TS/JS fn, 2=TS/JS arrow, 3=Python def,
+      //         4=Go receiver method, 5=Go/other free func,
+      //         6=Java/TS method with visibility modifier, 7=TS bare async method
+      const funcRegex =
+        /(?:export\s+)?(?:async\s+)?function\s+(\w+)|(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[^=])\s*=>|\bdef\s+(\w+)\s*\(|\bfunc\s+\(\w+\s+\*?\w+\)\s+(\w+)\s*\(|\bfunc\s+(\w+)\s*\(|\b(?:public|private|protected)\s+(?:(?:static|async|final|synchronized|abstract|readonly)\s+)*(?:[\w<>,.]+\s+)?(\w+)\s*\(|\basync\s+(?!function\b|def\b)(\w+)\s*\(/g;
+      const funcs: Array<{ name: string; bodyStart: number }> = [];
+      const funcNameSet = new Set<string>();
+      const allFuncMatches: RegExpExecArray[] = [];
       while ((match = funcRegex.exec(contentRead)) !== null) {
-        const funcName = match[1] ?? match[2] ?? match[3] ?? match[4];
+        const funcName =
+          match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? match[6] ?? match[7];
         if (!funcName) continue;
-        const nodeId = sanitizeId(`fn:${funcName}`);
-        lines.push(`  ${nodeId}["${funcName}"]`);
+        funcNameSet.add(funcName);
+        funcs.push({ name: funcName, bodyStart: match.index + match[0].length });
+        allFuncMatches.push(match);
       }
-      return lines.length > 1
-        ? '```mermaid\n' + lines.join('\n') + '\n```'
-        : '```mermaid\ngraph LR\n  NoFunctionsFound["No functions found"]\n```';
+
+      if (funcs.length === 0) {
+        return '```mermaid\ngraph LR\n  NoFunctionsFound["No functions found"]\n```';
+      }
+
+      // Emit nodes
+      for (const fn of funcs) {
+        const nodeId = sanitizeId(`fn:${fn.name}`);
+        lines.push(`  ${nodeId}["${fn.name}"]`);
+      }
+
+      // Second pass: for each function body, detect calls to other known functions
+      const edgesEmitted = new Set<string>();
+      const SKIP_KEYWORDS = new Set([
+        'if',
+        'for',
+        'while',
+        'switch',
+        'catch',
+        'return',
+        'new',
+        'typeof',
+        'instanceof',
+        'in',
+        'of',
+        'async',
+        'await',
+        'throw',
+        'delete',
+        'void',
+        'print',
+        'len',
+        'range',
+        'append',
+        'str',
+        'int',
+        'list',
+        'dict',
+        'set',
+        'make',
+        'fmt',
+        'log',
+        'console',
+      ]);
+
+      for (let fi = 0; fi < funcs.length; fi++) {
+        const caller = funcs[fi];
+        const bodyEnd = fi + 1 < funcs.length ? allFuncMatches[fi + 1].index : contentRead.length;
+        const body = contentRead.slice(
+          caller.bodyStart,
+          Math.min(caller.bodyStart + 2000, bodyEnd),
+        );
+        const callRe = /\b(\w+)\s*\(/g;
+        let cm: RegExpExecArray | null;
+        while ((cm = callRe.exec(body)) !== null) {
+          const callee = cm[1];
+          if (callee === caller.name) continue; // self-loop
+          if (SKIP_KEYWORDS.has(callee)) continue;
+          if (!funcNameSet.has(callee)) continue;
+          const edgeKey = `${caller.name}->${callee}`;
+          if (edgesEmitted.has(edgeKey)) continue;
+          edgesEmitted.add(edgeKey);
+          const srcId = sanitizeId(`fn:${caller.name}`);
+          const tgtId = sanitizeId(`fn:${callee}`);
+          lines.push(`  ${srcId} --> ${tgtId}`);
+        }
+      }
+
+      return '```mermaid\n' + lines.join('\n') + '\n```';
     }
   }
 }
@@ -3019,7 +3832,11 @@ export function getAvailableDiagramsFromContent(
   if (info) {
     const candidates = DIAGRAM_TYPES[info.category] ?? [];
     const available = getActuallyAvailableDiagramsFromContent(info, candidates, content);
-    const recommended = inferLegacyTypeFromContent(info, content);
+    const rawRecommended = inferLegacyTypeFromContent(info, content);
+    // Ensure recommended is always in the available list
+    const recommended = available.includes(rawRecommended)
+      ? rawRecommended
+      : (available[0] ?? rawRecommended);
     return { category: info.category, types: available, recommended };
   }
 
@@ -3044,6 +3861,16 @@ function getActuallyAvailableDiagramsFromContent(
   const upper = content.toUpperCase();
   const hasProcDiv = upper.includes('PROCEDURE DIVISION');
 
+  // For COBOL: strip comment lines (col 7 = '*' in fixed format) before pattern checks
+  // to prevent documentation comments containing "COPY X" from causing false positives.
+  const codeContent =
+    info.language === 'cobol'
+      ? content
+          .split('\n')
+          .filter((l) => !(l.length > 6 && l[6] === '*'))
+          .join('\n')
+      : content;
+
   // For .dds files that are actually display files, include screen_layout
   let candidates = candidateTypes;
   if (
@@ -3056,23 +3883,69 @@ function getActuallyAvailableDiagramsFromContent(
 
   for (const dtype of candidates) {
     switch (dtype) {
-      case 'call_graph':
-        if (/CALL\s+['"]?\w/i.test(content) || /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content)) {
+      case 'call_graph': {
+        // HLASM comment lines start with * — strip them before checking CALL
+        const contentForCallCheck =
+          info.language === 'asm'
+            ? content
+                .split('\n')
+                .filter((l) => !l.startsWith('*'))
+                .join('\n')
+            : codeContent; // already has COBOL comments stripped
+        if (
+          /CALL\s+['"]?\w/i.test(contentForCallCheck) ||
+          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(contentForCallCheck) ||
+          /\bdcl-proc\b/i.test(content) || // RPG ILE free-format procedure
+          /\bCALLNAT\s+['"]/i.test(content) // NATURAL external program call
+        ) {
           available.push(dtype);
         }
         break;
+      }
       case 'dependency_map':
-      case 'copybook_tree':
         if (
-          /COPY\s+\w/i.test(content) ||
-          /\/COPY\s/i.test(content) ||
-          /%INCLUDE\s/i.test(content)
+          /COPY\s+\w/i.test(codeContent) || // use comment-stripped content
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent) ||
+          /\/\/\w+\s+EXEC\s+(PGM|PROC)=/i.test(content) || // JCL job steps
+          /\bCALLNAT\s+['"]/i.test(content) || // NATURAL external program call
+          // Procedure copybooks have CALL targets as their runtime dependencies
+          (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(codeContent)) ||
+          // CL: DCLF FILE(...) declares a file dependency
+          (info.language === 'cl' && /\bDCLF\b/i.test(content)) ||
+          // DDS/screen: REF() and REFFLD() reference external field definitions
+          (info.language === 'dds' && /\bREF\s*\(|\bREFFLD\s*\(/i.test(content))
+        ) {
+          available.push(dtype);
+        }
+        break;
+      case 'copybook_tree':
+        // Only offered when actual COPY/INCLUDE statements exist (not comments)
+        if (
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent)
         ) {
           available.push(dtype);
         }
         break;
       case 'structure_chart':
       case 'procedure_flow': {
+        // CL: subroutine blocks (SUBR SUBR(...))
+        if (/\bSUBR\s+SUBR\s*\(/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
+        // RPG ILE: free-format procedure declarations
+        if (/\bdcl-proc\b/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
+        // PL/I: PROCEDURE keyword (not COBOL PROCEDURE DIVISION)
+        if (/\bPROCEDURE\b/i.test(content) && !hasProcDiv) {
+          available.push(dtype);
+          break;
+        }
         if (!hasProcDiv) break;
         const paraCount = (content.match(/^.{6}\s{1,4}[A-Za-z0-9][\w-]+\s*\./gm) ?? []).length;
         const sectionCount = (upper.match(/\bSECTION\s*\./g) ?? []).length;
@@ -3085,21 +3958,41 @@ function getActuallyAvailableDiagramsFromContent(
         }
         break;
       case 'field_hierarchy':
-        if (/^\s*\d{2}\s+\w/m.test(content)) available.push(dtype);
+        if (
+          info.category === 'dds' || // DDS: record R/field structure detected by parseDds
+          /^\s*\d{2}\s+\w/m.test(codeContent) || // COBOL: 2-digit level numbers
+          /\bdcl-ds\b/i.test(content) || // RPG ILE data structures
+          /^\s*DCL\s+1\b/im.test(content) || // PL/I: DCL 1 record declaration
+          /\bDEFINE\s+DATA\b/i.test(content) // NATURAL: DEFINE DATA section
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'file_io':
-        if (upper.includes('SELECT') && upper.includes('ASSIGN')) available.push(dtype);
+        if (
+          (upper.includes('SELECT') && upper.includes('ASSIGN')) ||
+          /\bdcl-f\b/i.test(content) // RPG ILE file declarations
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'screen_layout':
         available.push(dtype);
         break;
       case 'record_layout':
-        available.push(dtype);
+        // Only offer if actual data/record definitions exist — not for procedure copybooks
+        if (
+          info.category === 'dds' ||
+          /^\s*\d{2}\s+\w/m.test(codeContent) || // COBOL level numbers
+          /\bDEFINE\s+DATA\b/i.test(content) // NATURAL
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'usage_map':
         if (
-          /CALL\s+['"]?\w/i.test(content) ||
-          /COPY\s+\w/i.test(content) ||
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /COPY\s+\w/i.test(codeContent) || // use comment-stripped content
           (upper.includes('SELECT') && upper.includes('ASSIGN'))
         ) {
           available.push(dtype);
@@ -3119,20 +4012,33 @@ function getActuallyAvailableDiagramsFromContent(
 function getModernAvailableTypes(content: string): string[] {
   const available: string[] = [];
 
-  const hasClass = /\b(class|interface|extends|implements)\b/.test(content);
+  // TS/JS/Java: class/interface/extends/implements; Go: type Foo struct / interface
+  const hasClass =
+    /\b(class|extends|implements)\b/.test(content) ||
+    /\btype\s+\w+\s+(struct|interface)\b/.test(content);
   if (hasClass) available.push('class');
 
+  // TS/JS: import…from / require; Python: from…import; Go: import "pkg" or import (;
+  // Java: import java.util.List;
   const hasImports =
     /\bimport\s+.+\s+from\s+['"][^'"]+['"]/.test(content) ||
     /\brequire\s*\(\s*['"][^'"]+['"]\s*\)/.test(content) ||
-    /\bfrom\s+[a-zA-Z0-9_.]+\s+import\s+/.test(content);
+    /\bfrom\s+[a-zA-Z0-9_.]+\s+import\s+/.test(content) ||
+    /\bimport\s+["(]/.test(content) ||
+    /\bimport\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*;/.test(content);
   if (hasImports) available.push('dependency');
 
+  // TS/JS functions/arrows, Python def, Go free funcs + receiver methods,
+  // Java/TS class methods with visibility modifiers, TS bare async methods
   const hasFunctions =
     /\bfunction\s+\w+/.test(content) ||
     /\bdef\s+\w+\s*\(/.test(content) ||
-    /\bfunc\s+\w+\s*\(/.test(content) ||
-    /(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(content);
+    /\bfunc\s+(?:\(\w+\s+\*?\w+\)\s+)?\w+\s*\(/.test(content) ||
+    /(?:export\s+)?const\s+\w+\s*=\s*(?:async\s+)?\(/.test(content) ||
+    /\b(?:public|private|protected)\s+(?:(?:static|async|final|synchronized|abstract|readonly)\s+)*(?:[\w<>,.]+\s+)?\w+\s*\(/.test(
+      content,
+    ) ||
+    /\basync\s+(?!function\b|def\b)\w+\s*\(/.test(content);
   if (hasFunctions) available.push('call-graph');
 
   // structure is always available as a fallback

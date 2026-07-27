@@ -153,13 +153,18 @@
       {
         "command": "OpenCob.literateCoding",
         "title": "OpenCob: Literate Coding"
+      },
+      {
+        "command": "opencob.openSamples",
+        "title": "OpenCob: Open Sample Files",
+        "icon": "$(beaker)"
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd|jcl|job|proc|map|rexx|rex|nsp|nsa|nat|hlasm|asm|s|ts|tsx|js|mjs|py|java|go)/",
           "group": "navigation"
         },
         {
@@ -171,7 +176,7 @@
       "editor/context": [
         {
           "command": "OpenCob.generateDiagram",
-          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd)/",
+          "when": "resourceExtname =~ /\\.(cbl|cob|cobol|cpy|clp|clle|rpg|rpgle|sqlrpgle|bms|dds|pf|lf|dspf|prtf|pli|pl1|obs|mnu|cmd|jcl|job|proc|map|rexx|rex|nsp|nsa|nat|hlasm|asm|s|ts|tsx|js|mjs|py|java|go)/",
           "group": "OpenCob"
         },
         {
@@ -255,6 +260,27 @@
         "command": "OpenCob.cycleMode",
         "key": "ctrl+.",
         "mac": "ctrl+."
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "opencob.gettingStarted",
+        "title": "Get Started with OpenCob",
+        "description": "Explore AI-powered diagram generation on real legacy and modern code samples.",
+        "steps": [
+          {
+            "id": "opencob.openSamples",
+            "title": "Try Diagram Generation",
+            "description": "Open the built-in sample files and generate your first diagram.\n\n[Open Sample Files](command:opencob.openSamples)\n\nOnce a file opens, click the **$(type-hierarchy)** icon in the editor title bar, or right-click and choose **OpenCob: Generate Diagram**.",
+            "media": {
+              "image": "resources/opencob-mascot.svg",
+              "altText": "OpenCob mascot"
+            },
+            "completionEvents": [
+              "onCommand:opencob.openSamples"
+            ]
+          }
+        ]
       }
     ],
     "configuration": [

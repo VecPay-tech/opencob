@@ -1,0 +1,36 @@
+     A                                      DSPSIZ(24 80 *DS3)
+     A                                      INDARA
+     A                                      CA03(03 'Exit')
+     A                                      CA12(12 'Cancel')
+     A          R HEADER                    TEXT('Screen Header')
+     A                                      1  2'OpenCob Payment Inquiry'
+     A                                      1 60DATE  EDTCDE(Y)
+     A                                      2  2'Account:'
+     A            ACCOUNTNO     16A  B  2 11TEXT('Account Number')
+     A                                      CHECK(RZ ER)
+     A                                      2 30'Press Enter to search'
+     A          R PAYDETAIL                 TEXT('Payment Detail')
+     A                                      SFL
+     A                                      SFLNXTCHG
+     A  41                                  SFLDLT
+     A            SFLRRN         4S 0H
+     A            TRANSID       10A  O  5  2TEXT('Transaction ID')
+     A            TRANSTYPE      1A  O  5 14TEXT('Type')
+     A            AMOUNT        13Y 2O  5 17TEXT('Amount')
+     A                                      EDTCDE(1)
+     A            CURRENCY       3A  O  5 32TEXT('Currency')
+     A            STATUS         2A  O  5 37TEXT('Status')
+     A            TSTAMP        26A  O  5 41TEXT('Timestamp')
+     A          R PAYCTL                    TEXT('Subfile Control')
+     A                                      SFLCTL(PAYDETAIL)
+     A                                      SFLSIZ(0020)
+     A                                      SFLPAG(0010)
+     A  42                                  SFLDSP
+     A  43                                  SFLDSPCTL
+     A  44                                  SFLCLR
+     A  45                                  SFLEND(*MORE)
+     A                                      4  2'Transactions for account:'
+     A            DISPACC       16A  O  4 28
+     A                                      4 50'F3=Exit  F12=Cancel'
+     A                                      23  2'Total records:'
+     A            TOTCNT         5S 0O 23 17EDTCDE(Z)
