@@ -2558,10 +2558,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
     scanDirs.push(greatGrandParent);
   }
 
-  const copyPattern = new RegExp(
-    `(?:COPY|/COPY|%INCLUDE|CALL\\s+['"]?)${escapeRegExp(baseName)}\\b`,
-    'i',
-  );
+  const checkCopyReference = (text: string): boolean => hasReferenceToName(text, baseName);
 
   const sourceId = data.nodes[0]?.id;
   if (!sourceId) return;
@@ -2575,7 +2572,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
     scanDirectoryForRefs(
       dir,
       fullPath,
-      copyPattern,
+      checkCopyReference,
       data,
       sourceId,
       seenUsers,
@@ -2596,7 +2593,7 @@ function enrichWithInboundRefs(data: DiagramData, fullPath: string, root: string
 function scanDirectoryForRefs(
   dir: string,
   selfPath: string,
-  pattern: RegExp,
+  checkReference: (text: string) => boolean,
   data: DiagramData,
   sourceId: string,
   seenUsers: Set<string>,
@@ -2625,7 +2622,7 @@ function scanDirectoryForRefs(
         scanDirectoryForRefs(
           entryPath,
           selfPath,
-          pattern,
+          checkReference,
           data,
           sourceId,
           seenUsers,
@@ -2652,7 +2649,7 @@ function scanDirectoryForRefs(
     const entryContent = safeReadFile(entryPath);
     if (!entryContent) continue;
 
-    if (pattern.test(entryContent)) {
+    if (checkReference(entryContent)) {
       const userName = path.basename(entry.name, path.extname(entry.name)).toUpperCase();
       const nid = `usr_${sanitizeId(userName)}`;
       if (seenUsers.has(nid)) continue;
@@ -2670,8 +2667,49 @@ function scanDirectoryForRefs(
   }
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function hasReferenceToName(text: string, nameUpper: string): boolean {
+  const upper = text.toUpperCase();
+  return (
+    upper.includes(`COPY ${nameUpper}`) ||
+    upper.includes(`COPY '${nameUpper}`) ||
+    upper.includes(`COPY "${nameUpper}`) ||
+    upper.includes(`/COPY ${nameUpper}`) ||
+    upper.includes(`%INCLUDE ${nameUpper}`) ||
+    upper.includes(`CALL ${nameUpper}`) ||
+    upper.includes(`CALL '${nameUpper}`) ||
+    upper.includes(`CALL "${nameUpper}`) ||
+    upper.includes(`CALL PGM(${nameUpper}`) ||
+    upper.includes(`CALL PGM( ${nameUpper}`) ||
+    upper.includes(`/${nameUpper})`) ||
+    upper.includes(`'${nameUpper}')`) ||
+    upper.includes(`"${nameUpper}")`)
+  );
+}
+
+function inferRefType(text: string, nameUpper: string): 'CALLS' | 'COPIES' | 'USES' {
+  const upper = text.toUpperCase();
+  if (
+    upper.includes(`CALL ${nameUpper}`) ||
+    upper.includes(`CALL '${nameUpper}`) ||
+    upper.includes(`CALL "${nameUpper}`) ||
+    upper.includes(`CALL PGM(${nameUpper}`) ||
+    upper.includes(`CALL PGM( ${nameUpper}`) ||
+    upper.includes(`/${nameUpper})`) ||
+    upper.includes(`'${nameUpper}')`) ||
+    upper.includes(`"${nameUpper}")`)
+  ) {
+    return 'CALLS';
+  }
+  if (
+    upper.includes(`COPY ${nameUpper}`) ||
+    upper.includes(`COPY '${nameUpper}`) ||
+    upper.includes(`COPY "${nameUpper}`) ||
+    upper.includes(`/COPY ${nameUpper}`) ||
+    upper.includes(`%INCLUDE ${nameUpper}`)
+  ) {
+    return 'COPIES';
+  }
+  return 'USES';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2692,11 +2730,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
     scanDirs.push(grandParentDir);
   }
 
-  // Pattern: CALL 'BASENAME' or COPY BASENAME or /COPY BASENAME
-  const refPattern = new RegExp(
-    `(?:CALL\\s+['"]?${escapeRegExp(baseName)}|COPY\\s+${escapeRegExp(baseName)}|/COPY\\s+${escapeRegExp(baseName)}|%INCLUDE\\s+${escapeRegExp(baseName)}|CALL\\s+PGM\\(\\s*(?:\\w+/)?${escapeRegExp(baseName)})\\b`,
-    'i',
-  );
+  const checkForReference = (text: string, name: string): boolean =>
+    hasReferenceToName(text, name.toUpperCase());
 
   const sourceId = data.nodes[0]?.id;
   if (!sourceId) return;
@@ -2710,7 +2745,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
     scanDirectoryForUsageRefs(
       dir,
       fullPath,
-      refPattern,
+      baseName,
+      checkForReference,
       data,
       sourceId,
       seenUsers,
@@ -2731,7 +2767,8 @@ function enrichUsageMapWithReverse(data: DiagramData, fullPath: string, root: st
 function scanDirectoryForUsageRefs(
   dir: string,
   selfPath: string,
-  pattern: RegExp,
+  baseName: string,
+  checkForReference: (text: string, name: string) => boolean,
   data: DiagramData,
   sourceId: string,
   seenUsers: Set<string>,
@@ -2760,7 +2797,8 @@ function scanDirectoryForUsageRefs(
         scanDirectoryForUsageRefs(
           entryPath,
           selfPath,
-          pattern,
+          baseName,
+          checkForReference,
           data,
           sourceId,
           seenUsers,
@@ -2785,18 +2823,15 @@ function scanDirectoryForUsageRefs(
     const entryContent = safeReadFile(entryPath);
     if (!entryContent) continue;
 
-    if (pattern.test(entryContent)) {
+    if (checkForReference(entryContent, baseName)) {
       const userName = path.basename(entry.name, path.extname(entry.name)).toUpperCase();
       const nid = `in_${sanitizeId(userName)}`;
       if (seenUsers.has(nid)) continue;
       seenUsers.add(nid);
 
       // Determine ref type
-      const upper = entryContent.toUpperCase();
-      const baseName = path.basename(selfPath, path.extname(selfPath)).toUpperCase();
-      let refType = 'USES';
-      if (new RegExp(`CALL\\s+['"]?${escapeRegExp(baseName)}`, 'i').test(upper)) refType = 'CALLS';
-      else if (new RegExp(`COPY\\s+${escapeRegExp(baseName)}`, 'i').test(upper)) refType = 'COPIES';
+      const resolvedBaseName = path.basename(selfPath, path.extname(selfPath)).toUpperCase();
+      const refType = inferRefType(entryContent, resolvedBaseName);
 
       const fileId = root ? path.relative(root, entryPath).replace(/\\/g, '/') : undefined;
       data.nodes.push({ id: nid, label: userName, type: 'caller', fileId });
