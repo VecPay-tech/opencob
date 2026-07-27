@@ -262,6 +262,8 @@ function inferLegacyTypeFromContent(info: FileTypeInfo, content: string): Legacy
   }
   if (info.category === 'dds' || info.category === 'copybook') {
     if (/^\s*\d{2}\s+\w/m.test(content)) return 'field_hierarchy';
+    // Procedure copybooks (no data definitions but have CALL statements)
+    if (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(content)) return 'call_graph';
     return 'record_layout';
   }
 
@@ -359,12 +361,21 @@ function getActuallyAvailableDiagrams(
   const upper = content.toUpperCase();
   const hasProcDiv = upper.includes('PROCEDURE DIVISION');
 
+  // For COBOL: strip comment lines (col 7 = '*') before pattern checks
+  const codeContent =
+    info.language === 'cobol'
+      ? content
+          .split('\n')
+          .filter((l) => !(l.length > 6 && l[6] === '*'))
+          .join('\n')
+      : content;
+
   for (const dtype of candidateTypes) {
     switch (dtype) {
       case 'call_graph':
         if (
-          /CALL\s+['"]?\w/i.test(content) ||
-          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(content) ||
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /EXEC\s+CICS\s+(LINK|XCTL)/i.test(codeContent) ||
           /CALLP?\s+\w+\s*\(/i.test(content) ||
           /(?:dcl-proc\s+\w+|end-proc)/i.test(content)
         ) {
@@ -372,17 +383,37 @@ function getActuallyAvailableDiagrams(
         }
         break;
       case 'dependency_map':
+        if (
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent) ||
+          /\/\/\w+\s+EXEC\s+(PGM|PROC)=/i.test(content) ||
+          /\bCALLNAT\s+['"]/i.test(content) ||
+          (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(codeContent)) ||
+          // CL: DCLF FILE(...) declares a file dependency
+          (info.language === 'cl' && /\bDCLF\b/i.test(content)) ||
+          // DDS/screen: REF() and REFFLD() reference external field definitions
+          (info.language === 'dds' && /\bREF\s*\(|\bREFFLD\s*\(/i.test(content))
+        ) {
+          available.push(dtype);
+        }
+        break;
       case 'copybook_tree':
         if (
-          /COPY\s+\w/i.test(content) ||
-          /\/COPY\s/i.test(content) ||
-          /%INCLUDE\s/i.test(content)
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent)
         ) {
           available.push(dtype);
         }
         break;
       case 'structure_chart':
       case 'procedure_flow': {
+        // CL: subroutine blocks (SUBR SUBR(...))
+        if (/\bSUBR\s+SUBR\s*\(/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
         if (!hasProcDiv) break;
         const paraCount = (content.match(/^.{6}\s{1,4}[A-Za-z0-9][\w-]+\s*\./gm) ?? []).length;
         const sectionCount = (upper.match(/\bSECTION\s*\./g) ?? []).length;
@@ -395,7 +426,12 @@ function getActuallyAvailableDiagrams(
         }
         break;
       case 'field_hierarchy':
-        if (/^\s*\d{2}\s+\w/m.test(content)) available.push(dtype);
+        if (
+          info.category === 'dds' || // DDS: record R/field structure detected by parseDds
+          /^\s*\d{2}\s+\w/m.test(codeContent) // COBOL: 2-digit level numbers
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'file_io':
         if (upper.includes('SELECT') && upper.includes('ASSIGN')) available.push(dtype);
@@ -404,12 +440,19 @@ function getActuallyAvailableDiagrams(
         available.push(dtype); // Always available for screen/dspf files
         break;
       case 'record_layout':
-        available.push(dtype); // Always available for dds/copybook files
+        // Gate on actual data definitions - not for procedure-only copybooks
+        if (
+          info.category === 'dds' ||
+          /^\s*\d{2}\s+\w/m.test(codeContent) ||
+          /\bDEFINE\s+DATA\b/i.test(content)
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'usage_map':
         if (
-          /CALL\s+['"]?\w/i.test(content) ||
-          /COPY\s+\w/i.test(content) ||
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /COPY\s+\w/i.test(codeContent) ||
           (upper.includes('SELECT') && upper.includes('ASSIGN'))
         ) {
           available.push(dtype);
@@ -619,7 +662,7 @@ function generateCobolCallGraph(program: CobolProgram): DiagramData | null {
 }
 
 function generateCobolDependencyMap(program: CobolProgram): DiagramData | null {
-  if (program.copybooks.length === 0) return null;
+  if (program.copybooks.length === 0 && program.callStatements.length === 0) return null;
 
   const nodes: DiagramNode[] = [];
   const edges: DiagramEdge[] = [];
@@ -636,7 +679,19 @@ function generateCobolDependencyMap(program: CobolProgram): DiagramData | null {
     edges.push({ source: sourceId, target: nid, label: 'COPY', line: copy.line });
   }
 
-  return { nodes, edges };
+  // Procedure copybooks: no COPY statements but has CALL → show called programs as dependencies
+  if (program.copybooks.length === 0) {
+    for (const call of program.callStatements) {
+      const nid = `dep_${sanitizeId(call.target)}`;
+      if (!seen.has(nid)) {
+        seen.add(nid);
+        nodes.push({ id: nid, label: call.target, type: 'dependency', startLine: call.line });
+        edges.push({ source: sourceId, target: nid, label: 'CALL', line: call.line });
+      }
+    }
+  }
+
+  return nodes.length > 1 ? { nodes, edges } : null;
 }
 
 function generateCobolStructureChart(program: CobolProgram): DiagramData | null {
@@ -3742,7 +3797,11 @@ export function getAvailableDiagramsFromContent(
   if (info) {
     const candidates = DIAGRAM_TYPES[info.category] ?? [];
     const available = getActuallyAvailableDiagramsFromContent(info, candidates, content);
-    const recommended = inferLegacyTypeFromContent(info, content);
+    const rawRecommended = inferLegacyTypeFromContent(info, content);
+    // Ensure recommended is always in the available list
+    const recommended = available.includes(rawRecommended)
+      ? rawRecommended
+      : (available[0] ?? rawRecommended);
     return { category: info.category, types: available, recommended };
   }
 
@@ -3767,6 +3826,16 @@ function getActuallyAvailableDiagramsFromContent(
   const upper = content.toUpperCase();
   const hasProcDiv = upper.includes('PROCEDURE DIVISION');
 
+  // For COBOL: strip comment lines (col 7 = '*' in fixed format) before pattern checks
+  // to prevent documentation comments containing "COPY X" from causing false positives.
+  const codeContent =
+    info.language === 'cobol'
+      ? content
+          .split('\n')
+          .filter((l) => !(l.length > 6 && l[6] === '*'))
+          .join('\n')
+      : content;
+
   // For .dds files that are actually display files, include screen_layout
   let candidates = candidateTypes;
   if (
@@ -3787,7 +3856,7 @@ function getActuallyAvailableDiagramsFromContent(
                 .split('\n')
                 .filter((l) => !l.startsWith('*'))
                 .join('\n')
-            : content;
+            : codeContent; // already has COBOL comments stripped
         if (
           /CALL\s+['"]?\w/i.test(contentForCallCheck) ||
           /EXEC\s+CICS\s+(LINK|XCTL)/i.test(contentForCallCheck) ||
@@ -3800,26 +3869,38 @@ function getActuallyAvailableDiagramsFromContent(
       }
       case 'dependency_map':
         if (
-          /COPY\s+\w/i.test(content) ||
-          /\/COPY\s/i.test(content) ||
-          /%INCLUDE\s/i.test(content) ||
+          /COPY\s+\w/i.test(codeContent) || // use comment-stripped content
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent) ||
           /\/\/\w+\s+EXEC\s+(PGM|PROC)=/i.test(content) || // JCL job steps
-          /\bCALLNAT\s+['"]/i.test(content) // NATURAL external program call
+          /\bCALLNAT\s+['"]/i.test(content) || // NATURAL external program call
+          // Procedure copybooks have CALL targets as their runtime dependencies
+          (info.category === 'copybook' && /\bCALL\s+['"]?\w/i.test(codeContent)) ||
+          // CL: DCLF FILE(...) declares a file dependency
+          (info.language === 'cl' && /\bDCLF\b/i.test(content)) ||
+          // DDS/screen: REF() and REFFLD() reference external field definitions
+          (info.language === 'dds' && /\bREF\s*\(|\bREFFLD\s*\(/i.test(content))
         ) {
           available.push(dtype);
         }
         break;
       case 'copybook_tree':
+        // Only offered when actual COPY/INCLUDE statements exist (not comments)
         if (
-          /COPY\s+\w/i.test(content) ||
-          /\/COPY\s/i.test(content) ||
-          /%INCLUDE\s/i.test(content)
+          /COPY\s+\w/i.test(codeContent) ||
+          /\/COPY\s/i.test(codeContent) ||
+          /%INCLUDE\s/i.test(codeContent)
         ) {
           available.push(dtype);
         }
         break;
       case 'structure_chart':
       case 'procedure_flow': {
+        // CL: subroutine blocks (SUBR SUBR(...))
+        if (/\bSUBR\s+SUBR\s*\(/i.test(content)) {
+          available.push(dtype);
+          break;
+        }
         // RPG ILE: free-format procedure declarations
         if (/\bdcl-proc\b/i.test(content)) {
           available.push(dtype);
@@ -3843,7 +3924,8 @@ function getActuallyAvailableDiagramsFromContent(
         break;
       case 'field_hierarchy':
         if (
-          /^\s*\d{2}\s+\w/m.test(content) || // COBOL: 2-digit level numbers
+          info.category === 'dds' || // DDS: record R/field structure detected by parseDds
+          /^\s*\d{2}\s+\w/m.test(codeContent) || // COBOL: 2-digit level numbers
           /\bdcl-ds\b/i.test(content) || // RPG ILE data structures
           /^\s*DCL\s+1\b/im.test(content) || // PL/I: DCL 1 record declaration
           /\bDEFINE\s+DATA\b/i.test(content) // NATURAL: DEFINE DATA section
@@ -3863,12 +3945,19 @@ function getActuallyAvailableDiagramsFromContent(
         available.push(dtype);
         break;
       case 'record_layout':
-        available.push(dtype);
+        // Only offer if actual data/record definitions exist — not for procedure copybooks
+        if (
+          info.category === 'dds' ||
+          /^\s*\d{2}\s+\w/m.test(codeContent) || // COBOL level numbers
+          /\bDEFINE\s+DATA\b/i.test(content) // NATURAL
+        ) {
+          available.push(dtype);
+        }
         break;
       case 'usage_map':
         if (
-          /CALL\s+['"]?\w/i.test(content) ||
-          /COPY\s+\w/i.test(content) ||
+          /CALL\s+['"]?\w/i.test(codeContent) ||
+          /COPY\s+\w/i.test(codeContent) || // use comment-stripped content
           (upper.includes('SELECT') && upper.includes('ASSIGN'))
         ) {
           available.push(dtype);
