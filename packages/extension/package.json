@@ -564,7 +564,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
-    "@types/vscode": "^1.100.0",
+    "@types/vscode": "^1.134.0",
     "@vscode/test-electron": "^2.5.0",
     "esbuild": "^0.25.0",
     "rimraf": "^6.0.0",
